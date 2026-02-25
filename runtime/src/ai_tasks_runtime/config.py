@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # Optional: default working directory for Codex exec calls.
     codex_cwd: Optional[Path] = None
 
+    # Codex session logs root (Codex CLI stores rollouts as JSONL here).
+    codex_sessions_dir: Path = Path.home() / ".codex" / "sessions"
+
 
 settings = Settings()
-
