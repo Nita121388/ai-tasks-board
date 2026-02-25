@@ -246,3 +246,43 @@ export function moveTaskBlock(
   next = prefix + finalBlock + suffix;
   return next;
 }
+
+export function insertTaskBlock(
+  content: string,
+  toStatus: BoardStatus,
+  beforeUuid: string | null,
+  block: string
+): string {
+  const parsed = parseBoard(content);
+  const insertAt = findInsertionPoint(parsed, toStatus, beforeUuid);
+
+  const prefix = content.slice(0, insertAt);
+  const suffix = content.slice(insertAt);
+  const needsLeadingNl = prefix.length > 0 && !prefix.endsWith("\n");
+  const needsTrailingNl = !block.endsWith("\n");
+  const finalBlock =
+    (needsLeadingNl ? "\n" : "") + block + (needsTrailingNl ? "\n" : "");
+
+  return prefix + finalBlock + suffix;
+}
+
+export function replaceTaskBlock(content: string, uuid: string, block: string): string {
+  const parsed = parseBoard(content);
+
+  let existing: BoardTask | null = null;
+  for (const section of parsed.sections.values()) {
+    for (const t of section.tasks) {
+      if (t.uuid === uuid) {
+        existing = t;
+        break;
+      }
+    }
+    if (existing) break;
+  }
+  if (!existing) throw new Error(`Task not found: ${uuid}`);
+
+  const needsTrailingNl = !block.endsWith("\n");
+  const finalBlock = block + (needsTrailingNl ? "\n" : "");
+
+  return content.slice(0, existing.start) + finalBlock + content.slice(existing.end);
+}

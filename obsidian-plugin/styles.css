@@ -141,3 +141,49 @@
   background: var(--background-secondary);
 }
 
+/* Draft / preview modal */
+.ai-tasks-draft-modal textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-tasks-draft-label {
+  font-size: 12px;
+  opacity: 0.85;
+  margin: 6px 0;
+}
+
+.ai-tasks-draft-textarea {
+  min-height: 110px;
+}
+
+.ai-tasks-draft-buttons {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+
+.ai-tasks-draft-status {
+  font-size: 12px;
+  opacity: 0.9;
+  margin: 6px 0 10px;
+}
+
+.ai-tasks-draft-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ai-tasks-draft-preview-textarea {
+  min-height: 240px;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .ai-tasks-draft-preview {
+    grid-template-columns: 1fr;
+  }
+}

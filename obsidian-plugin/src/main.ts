@@ -1,6 +1,7 @@
-import { Plugin, WorkspaceLeaf } from "obsidian";
+import { Editor, MarkdownView, Menu, Plugin, WorkspaceLeaf } from "obsidian";
 import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiTasksBoardSettings } from "./settings";
 import { AI_TASKS_VIEW_TYPE, AiTasksBoardView } from "./view";
+import { AiTasksDraftModal } from "./draft_modal";
 
 export default class AiTasksBoardPlugin extends Plugin {
   settings: AiTasksBoardSettings;
@@ -17,6 +18,31 @@ export default class AiTasksBoardPlugin extends Plugin {
         await this.activateView();
       },
     });
+
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor, view: MarkdownView) => {
+        const sel = editor.getSelection();
+        if (!sel || sel.trim().length === 0) return;
+
+        menu.addItem((item) => {
+          item
+            .setTitle("AI Tasks: Add to board")
+            .setIcon("plus")
+            .onClick(() => {
+              new AiTasksDraftModal(this, { mode: "create", selection: sel, sourcePath: view.file?.path }).open();
+            });
+        });
+
+        menu.addItem((item) => {
+          item
+            .setTitle("AI Tasks: Update board (AI)")
+            .setIcon("wand-2")
+            .onClick(() => {
+              new AiTasksDraftModal(this, { mode: "auto", selection: sel, sourcePath: view.file?.path }).open();
+            });
+        });
+      })
+    );
 
     this.addSettingTab(new AiTasksBoardSettingTab(this.app, this));
   }
