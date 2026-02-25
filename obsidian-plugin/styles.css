@@ -1,0 +1,143 @@
+.ai-tasks-board-root {
+  padding: 12px;
+}
+
+.ai-tasks-board-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ai-tasks-board-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ai-tasks-board-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ai-tasks-board-select {
+  min-width: 160px;
+}
+
+.ai-tasks-board-tags {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 8px;
+  max-width: 360px;
+}
+
+.ai-tasks-board-tags-title {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.ai-tasks-board-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-tasks-board-tags-empty {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.ai-tasks-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ai-tasks-board-columns {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.ai-tasks-column {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--background-secondary);
+}
+
+.ai-tasks-column-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.ai-tasks-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 80px;
+}
+
+.ai-tasks-column-list.is-drop-target {
+  outline: 2px dashed var(--interactive-accent);
+  outline-offset: 4px;
+}
+
+.ai-task-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--background-primary);
+}
+
+.ai-task-card.is-dragging {
+  opacity: 0.6;
+}
+
+.ai-task-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-task-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  flex: 1;
+}
+
+.ai-task-status {
+  font-size: 12px;
+}
+
+.ai-task-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-task-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+}
+
+.ai-tasks-board-empty,
+.ai-tasks-board-error {
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+}
+

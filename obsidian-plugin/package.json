@@ -1,0 +1,22 @@
+{
+  "name": "ai-tasks-board-obsidian-plugin",
+  "version": "0.0.0",
+  "description": "Obsidian plugin for AI Tasks Board",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "license": "0-BSD",
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "esbuild": "0.25.5",
+    "tslib": "2.4.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "obsidian": "latest"
+  }
+}
+
