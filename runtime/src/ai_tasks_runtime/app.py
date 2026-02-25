@@ -14,6 +14,7 @@ from ai_tasks_runtime.agent_workspace import (
     ensure_agent_workspace,
     load_agent_files,
 )
+from ai_tasks_runtime.agno_agent import run_agent_text
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
 from ai_tasks_runtime.prompts import render_prompt
@@ -120,13 +121,7 @@ def agent_ask(req: AgentAskRequest) -> AgentAskResponse:
         },
     ).lstrip()
 
-    result = run_codex_exec(
-        prompt,
-        codex_bin=settings.codex_bin,
-        args=settings.codex_default_args,
-        cwd=settings.codex_cwd,
-        timeout_s=req.timeout_s,
-    )
+    result = run_agent_text(prompt, timeout_s=req.timeout_s, cwd=settings.codex_cwd)
 
     if req.record_memory:
         text = (result.text or "").strip()
@@ -244,13 +239,7 @@ def _codex_propose(req: BoardProposeRequest) -> Optional[BoardProposeResponse]:
         },
     )
 
-    result = run_codex_exec(
-        prompt,
-        codex_bin=settings.codex_bin,
-        args=settings.codex_default_args,
-        cwd=settings.codex_cwd,
-        timeout_s=120,
-    )
+    result = run_agent_text(prompt, timeout_s=120, cwd=settings.codex_cwd)
     obj = _parse_json_obj(result.text)
     if not obj:
         return None

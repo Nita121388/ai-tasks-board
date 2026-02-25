@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ai_tasks_runtime.agent_workspace import build_agent_context_prelude, ensure_agent_workspace, load_agent_files
+from ai_tasks_runtime.agno_agent import run_agent_text
 from ai_tasks_runtime.board_md import (
     add_session_ref_to_block,
     build_task_block,
@@ -18,7 +19,6 @@ from ai_tasks_runtime.board_md import (
     replace_task_block,
     write_board_with_history,
 )
-from ai_tasks_runtime.codex_cli import run_codex_exec
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.sessions.state import SessionsState, save_sessions_state
@@ -227,13 +227,7 @@ def _summarize_with_codex(messages: List[SessionMessage]) -> Optional[str]:
     )
 
     try:
-        result = run_codex_exec(
-            prompt,
-            codex_bin=settings.codex_bin,
-            args=settings.codex_default_args,
-            cwd=settings.codex_cwd,
-            timeout_s=120,
-        )
+        result = run_agent_text(prompt, timeout_s=120, cwd=settings.codex_cwd)
     except Exception:
         return None
 
@@ -400,13 +394,7 @@ def _ai_task_match(
     )
 
     try:
-        result = run_codex_exec(
-            prompt,
-            codex_bin=settings.codex_bin,
-            args=settings.codex_default_args,
-            cwd=settings.codex_cwd,
-            timeout_s=timeout_s,
-        )
+        result = run_agent_text(prompt, timeout_s=timeout_s, cwd=settings.codex_cwd)
     except Exception:
         return None, None, None
 

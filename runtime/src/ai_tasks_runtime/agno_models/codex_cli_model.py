@@ -17,7 +17,17 @@ from ai_tasks_runtime.codex_cli import run_codex_exec
 
 
 def _messages_to_prompt(messages: List[Message]) -> str:
-    """Flatten Agno messages into a single instruction string for Codex CLI."""
+    """Flatten Agno messages into a single prompt string for Codex CLI.
+
+    Preserve the direct `codex exec` behavior as much as possible:
+    - If this run is a single user message (common in this project), pass it through as-is.
+    - Otherwise, join messages with simple ROLE headings.
+    """
+
+    if len(messages) == 1:
+        m = messages[0]
+        if (m.role or "").strip().lower() == "user":
+            return m.get_content_string()
 
     parts: List[str] = []
     for m in messages:
@@ -128,4 +138,3 @@ class CodexCLIModel(Model):
         if isinstance(response, ModelResponse):
             return response
         return ModelResponse(role="assistant", content=str(response))
-
