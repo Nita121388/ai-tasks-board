@@ -119,6 +119,10 @@
   font-size: 12px;
 }
 
+.ai-task-archive {
+  font-size: 12px;
+}
+
 .ai-task-tags {
   display: flex;
   flex-wrap: wrap;

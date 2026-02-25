@@ -286,3 +286,22 @@ export function replaceTaskBlock(content: string, uuid: string, block: string): 
 
   return content.slice(0, existing.start) + finalBlock + content.slice(existing.end);
 }
+
+export function removeTaskBlock(content: string, uuid: string): { removed: BoardTask; next: string } {
+  const parsed = parseBoard(content);
+
+  let existing: BoardTask | null = null;
+  for (const section of parsed.sections.values()) {
+    for (const t of section.tasks) {
+      if (t.uuid === uuid) {
+        existing = t;
+        break;
+      }
+    }
+    if (existing) break;
+  }
+  if (!existing) throw new Error(`Task not found: ${uuid}`);
+
+  const next = content.slice(0, existing.start) + content.slice(existing.end);
+  return { removed: existing, next };
+}

@@ -1,6 +1,6 @@
-import { ItemView, TFile, Vault, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, TFile, Vault, WorkspaceLeaf } from "obsidian";
 import type AiTasksBoardPlugin from "./main";
-import { moveTaskBlock, parseBoard } from "./board";
+import { moveTaskBlock, parseBoard, removeTaskBlock } from "./board";
 import type { BoardStatus, BoardTask } from "./types";
 
 export const AI_TASKS_VIEW_TYPE = "ai-tasks-board-view";
@@ -25,6 +25,56 @@ function deriveHistoryPath(boardPath: string, ts: string): string {
   // Fallback: put history next to the board file.
   const parent = boardPath.split("/").slice(0, -1).join("/");
   return `${parent}/History/${stamped}`;
+}
+
+function todayLocalDate(): string {
+  const d = new Date();
+  const yyyy = String(d.getFullYear());
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function deriveArchivePath(archiveFolderPath: string, dateStr: string): string {
+  const folder = (archiveFolderPath || "Archive").replace(/^\/+|\/+$/g, "");
+  return folder ? `${folder}/${dateStr}.md` : `${dateStr}.md`;
+}
+
+function buildArchiveTemplate(dateStr: string): string {
+  return [
+    "---",
+    "schema: ai-tasks-archive/v1",
+    `date: ${dateStr}`,
+    "---",
+    "",
+    `# Archive ${dateStr}`,
+    "",
+    "",
+  ].join("\n");
+}
+
+function markTaskArchived(block: string, archivedAtIso: string): string {
+  const lines = block.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+  const archivedIdx = lines.findIndex((l) => /^>\s*archived::/i.test(l));
+  if (archivedIdx !== -1) {
+    lines[archivedIdx] = `> archived:: ${archivedAtIso}`;
+    return lines.join("\n") + "\n";
+  }
+
+  const createdIdx = lines.findIndex((l) => /^>\s*created::/i.test(l));
+  const statusIdx = lines.findIndex((l) => /^>\s*status::/i.test(l));
+  const headerIdx = lines.findIndex((l) => /^>\s*\[![^\]]+\]/.test(l));
+
+  const insertAt =
+    createdIdx !== -1
+      ? createdIdx + 1
+      : statusIdx !== -1
+        ? statusIdx + 1
+        : headerIdx !== -1
+          ? headerIdx + 1
+          : 1;
+  lines.splice(insertAt, 0, `> archived:: ${archivedAtIso}`);
+  return lines.join("\n") + "\n";
 }
 
 async function ensureFolder(vault: Vault, folderPath: string): Promise<void> {
@@ -185,7 +235,8 @@ export class AiTasksBoardView extends ItemView {
   private createCard(
     parent: HTMLElement,
     task: BoardTask,
-    onMove: (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => Promise<void>
+    onMove: (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => Promise<void>,
+    onArchive: (uuid: string) => Promise<void>
   ): HTMLElement {
     const card = parent.createDiv({
       cls: "ai-task-card",
@@ -202,6 +253,13 @@ export class AiTasksBoardView extends ItemView {
     statusSelect.addEventListener("change", async () => {
       await onMove(task.uuid, statusSelect.value as BoardStatus, null);
     });
+
+    if (task.status === "Done") {
+      const archiveBtn = top.createEl("button", { text: "Archive", cls: "ai-task-archive" });
+      archiveBtn.addEventListener("click", async () => {
+        await onArchive(task.uuid);
+      });
+    }
 
     if (task.tags.length > 0) {
       const tags = card.createDiv({ cls: "ai-task-tags" });
@@ -305,6 +363,34 @@ export class AiTasksBoardView extends ItemView {
       await this.render();
     };
 
+    const onArchive = async (uuid: string) => {
+      if (!window.confirm("Archive this task?")) return;
+
+      const current = await this.app.vault.read(boardFile);
+      const { removed, next } = removeTaskBlock(current, uuid);
+
+      const dateStr = todayLocalDate();
+      const archivePath = deriveArchivePath(this.plugin.settings.archiveFolderPath, dateStr);
+
+      const archivedBlock = markTaskArchived(removed.rawBlock, new Date().toISOString());
+
+      // Append to archive first to avoid losing the task if board write succeeds but archive fails.
+      const parent = archivePath.split("/").slice(0, -1).join("/");
+      if (parent) await ensureFolder(this.app.vault, parent);
+      const abs = this.app.vault.getAbstractFileByPath(archivePath);
+      if (abs instanceof TFile) {
+        const prev = await this.app.vault.read(abs);
+        const sep = prev.endsWith("\n") ? "\n" : "\n\n";
+        await this.app.vault.modify(abs, prev + sep + archivedBlock);
+      } else {
+        await this.app.vault.create(archivePath, buildArchiveTemplate(dateStr) + archivedBlock);
+      }
+
+      await this.writeBoard(boardFile, next);
+      new Notice(`Archived task to ${archivePath}`);
+      await this.render();
+    };
+
     for (const status of STATUSES) {
       const col = columns.createDiv({ cls: "ai-tasks-column" });
       col.createDiv({
@@ -317,7 +403,7 @@ export class AiTasksBoardView extends ItemView {
 
       const section = parsed.sections.get(status);
       const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
-      for (const t of tasks) this.createCard(list, t, onMove);
+      for (const t of tasks) this.createCard(list, t, onMove, onArchive);
     }
   }
 }

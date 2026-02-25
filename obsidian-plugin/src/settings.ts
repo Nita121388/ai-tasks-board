@@ -3,11 +3,13 @@ import AiTasksBoardPlugin from "./main";
 
 export type AiTasksBoardSettings = {
   boardPath: string;
+  archiveFolderPath: string;
   runtimeUrl: string;
 };
 
 export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   boardPath: "Tasks/Boards/Board.md",
+  archiveFolderPath: "Archive",
   runtimeUrl: "http://127.0.0.1:17890",
 };
 
@@ -37,6 +39,19 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Archive folder path")
+      .setDesc("Folder for archived tasks (daily files), e.g. Archive.")
+      .addText((text) => {
+        text
+          .setPlaceholder("Archive")
+          .setValue(this.plugin.settings.archiveFolderPath)
+          .onChange(async (value) => {
+            this.plugin.settings.archiveFolderPath = value.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
       .setName("Runtime URL")
       .setDesc("Local runtime base URL (Agno + FastAPI).")
       .addText((text) => {
@@ -50,4 +65,3 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
   }
 }
-
