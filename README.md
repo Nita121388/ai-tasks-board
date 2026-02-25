@@ -27,8 +27,18 @@ pip install -e .
 ai-tasks-runtime serve
 
 # Sessions collector (Codex only for now; Mode B)
-ai-tasks-runtime sessions init --vault /path/to/your/vault
-ai-tasks-runtime sessions watch --vault /path/to/your/vault
+# - First run init once (ignores historical sessions before init)
+# - Then sync/watch new sessions into `Vault/Sessions/codex/*.json`
+ai-tasks-runtime sessions init /path/to/your/vault
+ai-tasks-runtime sessions watch /path/to/your/vault
+
+# Optional: auto-link each new session into Board.md
+# - Best-effort match -> append `sessions:: codex:<id>` into an existing task
+# - Otherwise (low confidence) auto-create an Unassigned task (tags: session,codex)
+ai-tasks-runtime sessions watch /path/to/your/vault --board-path "Tasks/Boards/Board.md" --match-threshold 0.18
+
+# Disable board linking:
+ai-tasks-runtime sessions watch /path/to/your/vault --no-link-board
 ```
 
 ### Obsidian plugin

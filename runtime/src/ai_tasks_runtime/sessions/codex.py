@@ -6,8 +6,17 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from ai_tasks_runtime.board_md import (
+    add_session_ref_to_block,
+    build_task_block,
+    ensure_board_file,
+    insert_task_block,
+    parse_board,
+    replace_task_block,
+    write_board_with_history,
+)
 from ai_tasks_runtime.codex_cli import run_codex_exec
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.sessions.state import SessionsState, save_sessions_state
@@ -254,6 +263,59 @@ def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def _tokenize(s: str) -> List[str]:
+    return re.findall(r"[A-Za-z0-9_\\-]{2,}|[\\u4e00-\\u9fff]{1,}", (s or "").lower())
+
+
+def _jaccard(a_tokens: List[str], b_tokens: List[str]) -> float:
+    a = set(a_tokens)
+    b = set(b_tokens)
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _session_text(payload: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    summary = payload.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        parts.append(summary.strip())
+    snippets = payload.get("snippets") or []
+    if isinstance(snippets, list):
+        for sn in snippets[:6]:
+            if not isinstance(sn, dict):
+                continue
+            role = sn.get("role")
+            text = sn.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(f"{role}: {text.strip()}")
+    return "\n".join(parts)
+
+
+def _best_task_match(board_content: str, session_payload: Dict[str, Any]) -> Tuple[Optional[str], float]:
+    """Heuristic match session -> task UUID."""
+    parsed = parse_board(board_content)
+    tasks = [t for sec in parsed.sections.values() for t in sec.tasks]
+    if not tasks:
+        return None, 0.0
+
+    s_tokens = _tokenize(_session_text(session_payload))
+    if not s_tokens:
+        return None, 0.0
+
+    best_uuid: Optional[str] = None
+    best_score = 0.0
+    for t in tasks:
+        t_text = " ".join([t.title, *t.tags])
+        score = _jaccard(s_tokens, _tokenize(t_text))
+        if score > best_score:
+            best_score = score
+            best_uuid = t.uuid
+    return best_uuid, best_score
+
+
 def sync_codex_sessions(
     *,
     vault_dir: Path,
@@ -261,12 +323,27 @@ def sync_codex_sessions(
     sessions_root: Optional[Path] = None,
     summarize: bool = True,
     stable_after_s: int = 10,
+    link_board: bool = True,
+    board_rel_path: str = "Tasks/Boards/Board.md",
+    match_threshold: float = 0.18,
 ) -> Dict[str, Any]:
     """Scan Codex rollouts and write new session JSON files into the vault (Mode B)."""
 
     root = sessions_root or settings.codex_sessions_dir
     out_dir = vault_dir / "Sessions" / "codex"
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    board_content: Optional[str] = None
+    board_changed = False
+    if link_board:
+        try:
+            board_path = ensure_board_file(vault_dir, board_rel_path)
+            board_content = board_path.read_text(encoding="utf-8")
+            # Validate board markers early so we don't loop-fail per session.
+            parse_board(board_content)
+        except Exception:
+            link_board = False
+            board_content = None
 
     now = time.time()
     ignore_before = int(state.ignore_before_epoch)
@@ -275,6 +352,9 @@ def sync_codex_sessions(
     skipped_old = 0
     skipped_recent = 0
     skipped_existing = 0
+    skipped_already_linked = 0
+    linked_updates = 0
+    created_unassigned = 0
     errors = 0
 
     for rollout in iter_rollout_files(root):
@@ -296,50 +376,128 @@ def sync_codex_sessions(
             continue
 
         out_path = out_dir / f"{session_id}.json"
+        payload: Optional[Dict[str, Any]] = None
         if out_path.exists():
             skipped_existing += 1
-            continue
+            try:
+                payload = json.loads(out_path.read_text(encoding="utf-8"))
+            except Exception:
+                payload = None
 
         try:
-            meta, messages, started_at, ended_at = parse_rollout_messages(rollout)
-            snippets = _select_snippets(messages)
-            summary: Optional[str] = None
-            if summarize:
-                summary = _summarize_with_codex(messages) or _fallback_summary(messages)
+            if payload is None:
+                meta, messages, started_at, ended_at = parse_rollout_messages(rollout)
+                snippets = _select_snippets(messages)
+                summary: Optional[str] = None
+                if summarize:
+                    summary = _summarize_with_codex(messages) or _fallback_summary(messages)
 
-            payload: Dict[str, Any] = {
-                "id": f"codex:{session_id}",
-                "source": "codex",
-                "started_at": started_at,
-                "ended_at": ended_at,
-                "duration_sec": _duration_sec(started_at, ended_at),
-                "summary": summary,
-                "snippets": snippets,
-                "meta": meta,
-                "raw_ref": {
-                    "path": str(rollout),
-                    "mtime_epoch": int(st.st_mtime),
-                    "size": int(st.st_size),
-                },
-            }
-            _write_json_atomic(out_path, payload)
-            written += 1
+                payload = {
+                    "id": f"codex:{session_id}",
+                    "source": "codex",
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "duration_sec": _duration_sec(started_at, ended_at),
+                    "summary": summary,
+                    "snippets": snippets,
+                    "meta": meta,
+                    "raw_ref": {
+                        "path": str(rollout),
+                        "mtime_epoch": int(st.st_mtime),
+                        "size": int(st.st_size),
+                    },
+                }
+                _write_json_atomic(out_path, payload)
+                written += 1
+
+            if link_board and board_content is not None:
+                session_ref = f"codex:{session_id}"
+                if session_ref in board_content:
+                    skipped_already_linked += 1
+                else:
+                    match_uuid, score = _best_task_match(board_content, payload)
+                    if match_uuid and score >= match_threshold:
+                        parsed = parse_board(board_content)
+                        existing = None
+                        for sec in parsed.sections.values():
+                            for t in sec.tasks:
+                                if t.uuid == match_uuid:
+                                    existing = t
+                                    break
+                            if existing:
+                                break
+
+                        if existing is not None:
+                            updated = add_session_ref_to_block(existing.raw, session_ref)
+                            board_content = replace_task_block(board_content, existing.uuid, updated)
+                            board_changed = True
+                            linked_updates += 1
+                        else:
+                            # Fallback to create if the task can't be found.
+                            score = 0.0
+
+                    if not match_uuid or score < match_threshold:
+                        # Strategy (per Nita): create an Unassigned task for unmatched sessions.
+                        title = str(payload.get("summary") or "").strip() or session_ref
+                        title = title.splitlines()[0][:80]
+                        snippets = payload.get("snippets") or []
+
+                        body_lines: List[str] = [f"Session: {session_ref}", ""]
+                        if isinstance(payload.get("summary"), str) and payload.get("summary"):
+                            body_lines.append("Summary:")
+                            body_lines.append(str(payload.get("summary")).strip())
+                            body_lines.append("")
+                        if isinstance(snippets, list) and snippets:
+                            body_lines.append("Snippets:")
+                            for sn in snippets[:6]:
+                                if not isinstance(sn, dict):
+                                    continue
+                                role = sn.get("role")
+                                text = sn.get("text")
+                                if isinstance(text, str) and text.strip():
+                                    one = text.strip().replace("\n", " ")
+                                    body_lines.append(f"- {role}: {one[:200]}")
+
+                        block = build_task_block(
+                            title=title,
+                            status="Unassigned",
+                            tags=["session", "codex"],
+                            body="\n".join(body_lines).strip(),
+                            sessions=[session_ref],
+                        )
+                        parsed = parse_board(board_content)
+                        first_unassigned = None
+                        unassigned = parsed.sections.get("Unassigned")
+                        if unassigned and unassigned.tasks:
+                            first_unassigned = unassigned.tasks[0].uuid
+                        board_content = insert_task_block(board_content, "Unassigned", first_unassigned, block)
+                        board_changed = True
+                        created_unassigned += 1
         except Exception:
             errors += 1
             continue
+
+    if link_board and board_changed and board_content is not None:
+        try:
+            write_board_with_history(vault_dir, board_rel_path, board_content)
+        except Exception:
+            errors += 1
 
     state.sources.setdefault("codex", {})
     state.sources["codex"]["last_sync_at"] = _utc_now_iso()
     state.sources["codex"]["sessions_root"] = str(root)
     state.sources["codex"]["output_dir"] = str(out_dir)
+    state.sources["codex"]["board_rel_path"] = board_rel_path
     state.sources["codex"]["last_result"] = {
         "written": written,
         "skipped_old": skipped_old,
         "skipped_recent": skipped_recent,
         "skipped_existing": skipped_existing,
+        "skipped_already_linked": skipped_already_linked,
+        "linked_updates": linked_updates,
+        "created_unassigned": created_unassigned,
         "errors": errors,
     }
     save_sessions_state(vault_dir, state)
 
     return dict(state.sources["codex"]["last_result"])
-

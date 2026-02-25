@@ -56,6 +56,9 @@ def sessions_sync(
     summarize: bool = True,
     stable_after_s: int = 10,
     codex_sessions_dir: Optional[str] = None,
+    link_board: bool = True,
+    board_path: str = "Tasks/Boards/Board.md",
+    match_threshold: float = 0.18,
 ) -> None:
     """One-shot sync: write new Sessions JSON files (Mode B) into the vault."""
     vault_dir = Path(vault).expanduser().resolve()
@@ -64,7 +67,16 @@ def sessions_sync(
 
     state = load_sessions_state(vault_dir) or ensure_sessions_state(vault_dir)
     root = Path(codex_sessions_dir).expanduser().resolve() if codex_sessions_dir else None
-    result = sync_codex_sessions(vault_dir=vault_dir, state=state, sessions_root=root, summarize=summarize, stable_after_s=stable_after_s)
+    result = sync_codex_sessions(
+        vault_dir=vault_dir,
+        state=state,
+        sessions_root=root,
+        summarize=summarize,
+        stable_after_s=stable_after_s,
+        link_board=link_board,
+        board_rel_path=board_path,
+        match_threshold=match_threshold,
+    )
     typer.echo(json.dumps({"ok": True, "source": "codex", **result}, ensure_ascii=False))
 
 
@@ -75,6 +87,9 @@ def sessions_watch(
     summarize: bool = True,
     stable_after_s: int = 10,
     codex_sessions_dir: Optional[str] = None,
+    link_board: bool = True,
+    board_path: str = "Tasks/Boards/Board.md",
+    match_threshold: float = 0.18,
 ) -> None:
     """Watch mode: poll and sync new sessions continuously."""
     vault_dir = Path(vault).expanduser().resolve()
@@ -86,6 +101,15 @@ def sessions_watch(
 
     typer.echo(json.dumps({"ok": True, "watching": True, "interval_s": interval_s, "vault": str(vault_dir)}, ensure_ascii=False))
     while True:
-        result = sync_codex_sessions(vault_dir=vault_dir, state=state, sessions_root=root, summarize=summarize, stable_after_s=stable_after_s)
+        result = sync_codex_sessions(
+            vault_dir=vault_dir,
+            state=state,
+            sessions_root=root,
+            summarize=summarize,
+            stable_after_s=stable_after_s,
+            link_board=link_board,
+            board_rel_path=board_path,
+            match_threshold=match_threshold,
+        )
         typer.echo(json.dumps({"ts": time.time(), "source": "codex", **result}, ensure_ascii=False))
         time.sleep(max(1, interval_s))
