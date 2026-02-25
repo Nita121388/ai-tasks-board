@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from ai_tasks_runtime.agent_workspace import (
+    append_daily_memory,
+    build_agent_context_prelude,
+    ensure_agent_workspace,
+    load_agent_files,
+)
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
 
@@ -22,6 +28,19 @@ class CodexExecRequest(BaseModel):
 
 
 class CodexExecResponse(BaseModel):
+    text: str
+    thread_id: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+
+
+class AgentAskRequest(BaseModel):
+    prompt: str
+    include_memory: bool = True
+    record_memory: bool = True
+    timeout_s: int = 120
+
+
+class AgentAskResponse(BaseModel):
     text: str
     thread_id: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
@@ -76,6 +95,46 @@ def codex_exec(req: CodexExecRequest) -> CodexExecResponse:
         timeout_s=req.timeout_s,
     )
     return CodexExecResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+
+
+@app.post("/v1/agent/ask", response_model=AgentAskResponse)
+def agent_ask(req: AgentAskRequest) -> AgentAskResponse:
+    """Lightweight Agent endpoint: inject SOUL/USER/MEMORY context and call Codex CLI."""
+
+    agent_dir = settings.agent_dir
+    ensure_agent_workspace(agent_dir, force=False)
+
+    include = ["AGENTS.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md"]
+    if req.include_memory:
+        include.append("MEMORY.md")
+    files = load_agent_files(agent_dir, include=include)
+    prelude = build_agent_context_prelude(files)
+
+    prompt = "\n".join(
+        [
+            prelude.rstrip(),
+            "# Task",
+            (req.prompt or "").strip(),
+            "",
+            "Return plain text only.",
+        ]
+    ).lstrip()
+
+    result = run_codex_exec(
+        prompt,
+        codex_bin=settings.codex_bin,
+        args=settings.codex_default_args,
+        cwd=settings.codex_cwd,
+        timeout_s=req.timeout_s,
+    )
+
+    if req.record_memory:
+        text = (result.text or "").strip()
+        if len(text) > 1200:
+            text = text[:1200] + "\n...[truncated]..."
+        append_daily_memory(agent_dir, f"Agent ask (HTTP)\n\nUser:\n{(req.prompt or '').strip()}\n\nAssistant:\n{text}")
+
+    return AgentAskResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
 
 
 def _first_non_empty_line(text: str) -> str:
@@ -161,7 +220,15 @@ def _codex_propose(req: BoardProposeRequest) -> Optional[BoardProposeResponse]:
         for t in req.tasks
     ]
 
-    prompt = (
+    agent_dir = settings.agent_dir
+    try:
+        ensure_agent_workspace(agent_dir, force=False)
+        ctx_files = load_agent_files(agent_dir, include=["SOUL.md", "AGENTS.md"])
+        ctx = build_agent_context_prelude(ctx_files)
+    except Exception:
+        ctx = ""
+
+    prompt = ctx + (
         "You are helping maintain an Obsidian Markdown task board.\n"
         "Given a user draft text, decide whether to create a new task or update an existing one.\n"
         "Return ONLY valid JSON with this shape:\n"

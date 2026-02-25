@@ -3,7 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_agent_dir() -> Path:
+    # Prefer the repo's `ai-tasks-board/agent/` workspace when running from source.
+    # Fallback to a local `./agent` folder when installed elsewhere.
+    here = Path(__file__).resolve()
+    candidate = here.parents[3] / "agent"
+    if candidate.exists():
+        return candidate
+    return Path.cwd() / "agent"
 
 
 class Settings(BaseSettings):
@@ -16,6 +27,9 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 17890
+
+    # Agent workspace directory (SOUL.md, MEMORY.md, HEARTBEAT.md, etc.)
+    agent_dir: Path = Field(default_factory=_default_agent_dir)
 
     codex_bin: str = "codex"
     codex_default_args: List[str] = [

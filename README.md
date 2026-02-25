@@ -41,6 +41,20 @@ ai-tasks-runtime sessions watch /path/to/your/vault --board-path "Tasks/Boards/B
 ai-tasks-runtime sessions watch /path/to/your/vault --no-link-board
 ```
 
+### Agent workspace (OpenClaw-style files)
+
+The repo includes an `ai-tasks-board/agent/` folder with the expected Agent files:
+
+- `SOUL.md`, `USER.md`, `MEMORY.md`, `HEARTBEAT.md`, etc.
+
+You can bootstrap/validate them via:
+
+```bash
+ai-tasks-runtime agent init
+ai-tasks-runtime agent ask "Reply with OK." --no-include-memory
+ai-tasks-runtime agent heartbeat
+```
+
 ### Obsidian plugin
 
 ```bash
