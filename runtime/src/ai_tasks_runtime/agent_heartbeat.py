@@ -73,6 +73,9 @@ def run_heartbeat_once(agent_dir: Path) -> Dict[str, Any]:
                 link_board = _as_bool(sessions_cfg.get("link_board"), True)
                 board_path = _as_str(sessions_cfg.get("board_path"), "Tasks/Boards/Board.md")
                 match_threshold = _as_float(sessions_cfg.get("match_threshold"), 0.18)
+                match_mode = _as_str(sessions_cfg.get("match_mode"), "ai").strip().lower() or "ai"
+                ai_confidence_threshold = _as_float(sessions_cfg.get("ai_confidence_threshold"), 0.65)
+                ai_top_k = _as_int(sessions_cfg.get("ai_top_k"), 20)
 
                 sess_state = load_sessions_state(vault_dir) or ensure_sessions_state(vault_dir)
                 sync_result = sync_codex_sessions(
@@ -83,7 +86,10 @@ def run_heartbeat_once(agent_dir: Path) -> Dict[str, Any]:
                     stable_after_s=stable_after_s,
                     link_board=link_board,
                     board_rel_path=board_path,
+                    match_mode=match_mode,
                     match_threshold=match_threshold,
+                    ai_confidence_threshold=ai_confidence_threshold,
+                    ai_top_k=ai_top_k,
                 )
 
                 state["sessions_last_run"] = now
@@ -107,4 +113,3 @@ def run_heartbeat_once(agent_dir: Path) -> Dict[str, Any]:
                 )
 
     return result
-

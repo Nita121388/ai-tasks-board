@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from ai_tasks_runtime.agent_workspace import build_agent_context_prelude, ensure_agent_workspace, load_agent_files
 from ai_tasks_runtime.board_md import (
     add_session_ref_to_block,
     build_task_block,
@@ -263,6 +264,20 @@ def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def _parse_json_obj(text: str) -> Optional[Dict[str, Any]]:
+    # Find the first JSON object in text (defensive against pre/post-amble).
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    snippet = text[start : end + 1]
+    try:
+        obj = json.loads(snippet)
+    except Exception:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
 def _tokenize(s: str) -> List[str]:
     return re.findall(r"[A-Za-z0-9_\\-]{2,}|[\\u4e00-\\u9fff]{1,}", (s or "").lower())
 
@@ -316,6 +331,121 @@ def _best_task_match(board_content: str, session_payload: Dict[str, Any]) -> Tup
     return best_uuid, best_score
 
 
+def _top_candidate_tasks(
+    board_content: str, session_payload: Dict[str, Any], top_k: int = 20
+) -> List[Tuple[str, str, str, List[str], float]]:
+    """Return candidate tasks as (uuid, title, status, tags, heuristic_score)."""
+    parsed = parse_board(board_content)
+    tasks = [t for sec in parsed.sections.values() for t in sec.tasks]
+    if not tasks:
+        return []
+
+    s_tokens = _tokenize(_session_text(session_payload))
+    if not s_tokens:
+        return []
+
+    ranked: List[Tuple[str, str, str, List[str], float]] = []
+    for t in tasks:
+        t_text = " ".join([t.title, *t.tags])
+        score = _jaccard(s_tokens, _tokenize(t_text))
+        ranked.append((t.uuid, t.title, t.status, t.tags, score))
+
+    ranked.sort(key=lambda x: x[4], reverse=True)
+    k = max(1, min(int(top_k or 20), len(ranked)))
+    return ranked[:k]
+
+
+def _ai_task_match(
+    *,
+    candidates: List[Tuple[str, str, str, List[str], float]],
+    session_payload: Dict[str, Any],
+    top_k: int = 20,
+    timeout_s: int = 120,
+) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    """Ask Codex to pick a task UUID among candidates (or null)."""
+    if not candidates:
+        return None, None, None
+
+    k = max(1, min(int(top_k or 20), len(candidates)))
+    short = candidates[:k]
+    cand_json = [
+        {
+            "uuid": u,
+            "title": title,
+            "status": status,
+            "tags": tags,
+            "heuristic_score": round(score, 4),
+        }
+        for (u, title, status, tags, score) in short
+    ]
+
+    ctx = ""
+    try:
+        ensure_agent_workspace(settings.agent_dir, force=False)
+        files = load_agent_files(settings.agent_dir, include=["SOUL.md", "AGENTS.md"])
+        ctx = build_agent_context_prelude(files)
+    except Exception:
+        ctx = ""
+
+    prompt = (
+        ctx
+        + "You are linking a Codex CLI session to an existing task in an Obsidian Markdown board.\n"
+        "Choose the best matching task UUID from the candidate list, or choose null if none fit.\n"
+        "\n"
+        "Return ONLY valid JSON:\n"
+        "{\n"
+        '  \"target_uuid\": string|null,\n'
+        '  \"confidence\": number,\n'
+        '  \"reasoning\": string\n'
+        "}\n"
+        "\n"
+        "Rules:\n"
+        "- target_uuid MUST be one of the candidate uuids or null.\n"
+        "- If uncertain, return null with low confidence.\n"
+        "\n"
+        "Session:\n"
+        f"{_session_text(session_payload)}\n"
+        "\n"
+        "Candidate tasks (JSON):\n"
+        f"{json.dumps(cand_json, ensure_ascii=False)}\n"
+    )
+
+    try:
+        result = run_codex_exec(
+            prompt,
+            codex_bin=settings.codex_bin,
+            args=settings.codex_default_args,
+            cwd=settings.codex_cwd,
+            timeout_s=timeout_s,
+        )
+    except Exception:
+        return None, None, None
+
+    obj = _parse_json_obj(result.text or "")
+    if not obj:
+        return None, None, None
+
+    target = obj.get("target_uuid")
+    target_uuid = str(target).lower() if isinstance(target, str) and target.strip() else None
+
+    conf_val: Optional[float] = None
+    try:
+        if obj.get("confidence") is not None:
+            conf_val = float(obj.get("confidence"))
+    except Exception:
+        conf_val = None
+
+    reasoning: Optional[str] = None
+    if isinstance(obj.get("reasoning"), str):
+        reasoning = obj.get("reasoning").strip() or None
+
+    allowed = {u for (u, _, _, _, _) in short}
+    if target_uuid is not None and target_uuid not in allowed:
+        return None, conf_val, reasoning
+
+    return target_uuid, conf_val, reasoning
+
+
 def sync_codex_sessions(
     *,
     vault_dir: Path,
@@ -325,7 +455,10 @@ def sync_codex_sessions(
     stable_after_s: int = 10,
     link_board: bool = True,
     board_rel_path: str = "Tasks/Boards/Board.md",
+    match_mode: str = "ai",
     match_threshold: float = 0.18,
+    ai_confidence_threshold: float = 0.65,
+    ai_top_k: int = 20,
 ) -> Dict[str, Any]:
     """Scan Codex rollouts and write new session JSON files into the vault (Mode B)."""
 
@@ -415,8 +548,42 @@ def sync_codex_sessions(
                 if session_ref in board_content:
                     skipped_already_linked += 1
                 else:
-                    match_uuid, score = _best_task_match(board_content, payload)
-                    if match_uuid and score >= match_threshold:
+                    mode = (match_mode or "ai").strip().lower()
+                    if mode not in ("heuristic", "ai", "hybrid"):
+                        mode = "ai"
+
+                    match_uuid: Optional[str] = None
+                    match_method: Optional[str] = None  # "ai" | "heuristic"
+                    score = 0.0
+                    ai_conf: Optional[float] = None
+
+                    # 1) AI match (if enabled)
+                    if mode in ("ai", "hybrid"):
+                        candidates = _top_candidate_tasks(board_content, payload, top_k=ai_top_k)
+                        ai_uuid, ai_conf, _ = _ai_task_match(
+                            candidates=candidates,
+                            session_payload=payload,
+                            top_k=ai_top_k,
+                        )
+                        if ai_uuid:
+                            match_uuid = ai_uuid
+                            match_method = "ai"
+
+                    # 2) Heuristic fallback (if enabled AND AI didn't return a uuid)
+                    if mode in ("heuristic", "hybrid") and match_uuid is None:
+                        match_uuid, score = _best_task_match(board_content, payload)
+                        if match_uuid:
+                            match_method = "heuristic"
+
+                    should_link = False
+                    if match_uuid:
+                        if match_method == "heuristic":
+                            should_link = score >= match_threshold
+                        else:
+                            # AI mode: require confidence when present; if missing, be conservative.
+                            should_link = (ai_conf if ai_conf is not None else 0.0) >= ai_confidence_threshold
+
+                    if should_link and match_uuid:
                         parsed = parse_board(board_content)
                         existing = None
                         for sec in parsed.sections.values():
@@ -433,10 +600,10 @@ def sync_codex_sessions(
                             board_changed = True
                             linked_updates += 1
                         else:
-                            # Fallback to create if the task can't be found.
-                            score = 0.0
+                            # If the task can't be found, fall through to Unassigned creation.
+                            should_link = False
 
-                    if not match_uuid or score < match_threshold:
+                    if not should_link:
                         # Strategy (per Nita): create an Unassigned task for unmatched sessions.
                         title = str(payload.get("summary") or "").strip() or session_ref
                         title = title.splitlines()[0][:80]
@@ -488,6 +655,10 @@ def sync_codex_sessions(
     state.sources["codex"]["sessions_root"] = str(root)
     state.sources["codex"]["output_dir"] = str(out_dir)
     state.sources["codex"]["board_rel_path"] = board_rel_path
+    state.sources["codex"]["match_mode"] = match_mode
+    state.sources["codex"]["match_threshold"] = match_threshold
+    state.sources["codex"]["ai_confidence_threshold"] = ai_confidence_threshold
+    state.sources["codex"]["ai_top_k"] = ai_top_k
     state.sources["codex"]["last_result"] = {
         "written": written,
         "skipped_old": skipped_old,

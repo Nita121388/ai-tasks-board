@@ -14,8 +14,10 @@ The runtime looks for the first JSON code block in this file.
     "stable_after_s": 10,
     "link_board": true,
     "board_path": "Tasks/Boards/Board.md",
-    "match_threshold": 0.18
+    "match_mode": "ai",
+    "match_threshold": 0.18,
+    "ai_confidence_threshold": 0.65,
+    "ai_top_k": 20
   }
 }
 ```
-

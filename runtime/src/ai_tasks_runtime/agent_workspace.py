@@ -49,7 +49,8 @@ _DEFAULT_TEMPLATES: Dict[str, str] = {
         "- Prefer **minimal diffs** (patch-style) over rewriting whole files.\n"
         "- Always be explicit about **what will change** (draft/before/after) before writing.\n"
         "- Preserve history: snapshot before writes when possible.\n"
-        "- Be honest about confidence; if unsure, ask the user for the missing detail.\n\n"
+        "- Be honest about confidence; if unsure, ask the user for the missing detail.\n"
+        "- When matching sessions to tasks, be conservative: link only when confident; otherwise create an `Unassigned` task.\n\n"
         "## Boundaries\n\n"
         "- Never leak secrets from logs or local files.\n"
         "- Don't run destructive actions; prefer reversible operations (history snapshots, trash).\n"
@@ -91,7 +92,10 @@ _DEFAULT_TEMPLATES: Dict[str, str] = {
         '    "stable_after_s": 10,\n'
         '    "link_board": true,\n'
         '    "board_path": "Tasks/Boards/Board.md",\n'
-        '    "match_threshold": 0.18\n'
+        '    "match_mode": "ai",\n'
+        '    "match_threshold": 0.18,\n'
+        '    "ai_confidence_threshold": 0.65,\n'
+        '    "ai_top_k": 20\n'
         "  }\n"
         "}\n"
         "```\n"
@@ -322,4 +326,3 @@ def load_heartbeat_config(agent_dir: Path) -> Optional[Dict[str, object]]:
     except Exception:
         return None
     return obj if isinstance(obj, dict) else None
-

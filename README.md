@@ -33,9 +33,9 @@ ai-tasks-runtime sessions init /path/to/your/vault
 ai-tasks-runtime sessions watch /path/to/your/vault
 
 # Optional: auto-link each new session into Board.md
-# - Best-effort match -> append `sessions:: codex:<id>` into an existing task
-# - Otherwise (low confidence) auto-create an Unassigned task (tags: session,codex)
-ai-tasks-runtime sessions watch /path/to/your/vault --board-path "Tasks/Boards/Board.md" --match-threshold 0.18
+# - match_mode: ai|heuristic|hybrid (default: ai)
+# - AI mode: link only when confidence >= ai_confidence_threshold; otherwise create Unassigned
+ai-tasks-runtime sessions watch /path/to/your/vault --board-path "Tasks/Boards/Board.md" --match-mode ai --ai-confidence-threshold 0.65
 
 # Disable board linking:
 ai-tasks-runtime sessions watch /path/to/your/vault --no-link-board

@@ -162,7 +162,10 @@ def sessions_sync(
     codex_sessions_dir: Optional[str] = None,
     link_board: bool = True,
     board_path: str = "Tasks/Boards/Board.md",
+    match_mode: str = "ai",
     match_threshold: float = 0.18,
+    ai_confidence_threshold: float = 0.65,
+    ai_top_k: int = 20,
 ) -> None:
     """One-shot sync: write new Sessions JSON files (Mode B) into the vault."""
     vault_dir = Path(vault).expanduser().resolve()
@@ -179,7 +182,10 @@ def sessions_sync(
         stable_after_s=stable_after_s,
         link_board=link_board,
         board_rel_path=board_path,
+        match_mode=match_mode,
         match_threshold=match_threshold,
+        ai_confidence_threshold=ai_confidence_threshold,
+        ai_top_k=ai_top_k,
     )
     typer.echo(json.dumps({"ok": True, "source": "codex", **result}, ensure_ascii=False))
 
@@ -193,7 +199,10 @@ def sessions_watch(
     codex_sessions_dir: Optional[str] = None,
     link_board: bool = True,
     board_path: str = "Tasks/Boards/Board.md",
+    match_mode: str = "ai",
     match_threshold: float = 0.18,
+    ai_confidence_threshold: float = 0.65,
+    ai_top_k: int = 20,
 ) -> None:
     """Watch mode: poll and sync new sessions continuously."""
     vault_dir = Path(vault).expanduser().resolve()
@@ -213,7 +222,10 @@ def sessions_watch(
             stable_after_s=stable_after_s,
             link_board=link_board,
             board_rel_path=board_path,
+            match_mode=match_mode,
             match_threshold=match_threshold,
+            ai_confidence_threshold=ai_confidence_threshold,
+            ai_top_k=ai_top_k,
         )
         typer.echo(json.dumps({"ts": time.time(), "source": "codex", **result}, ensure_ascii=False))
         time.sleep(max(1, interval_s))
