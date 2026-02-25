@@ -20,6 +20,7 @@ from ai_tasks_runtime.board_md import (
 )
 from ai_tasks_runtime.codex_cli import run_codex_exec
 from ai_tasks_runtime.config import settings
+from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.sessions.state import SessionsState, save_sessions_state
 
 
@@ -217,11 +218,12 @@ def _summarize_with_codex(messages: List[SessionMessage]) -> Optional[str]:
     if len(convo) > 12000:
         convo = convo[-12000:]
 
-    prompt = (
-        "Summarize this Codex CLI session in Chinese within 2 sentences.\n"
-        "Avoid leaking secrets; generalize paths/tokens if present.\n"
-        "Return plain text only.\n\n"
-        f"{convo}"
+    prompt = render_prompt(
+        settings.agent_dir,
+        "sessions.codex.summarize.v1",
+        {
+            "convo": convo,
+        },
     )
 
     try:
@@ -387,27 +389,14 @@ def _ai_task_match(
     except Exception:
         ctx = ""
 
-    prompt = (
-        ctx
-        + "You are linking a Codex CLI session to an existing task in an Obsidian Markdown board.\n"
-        "Choose the best matching task UUID from the candidate list, or choose null if none fit.\n"
-        "\n"
-        "Return ONLY valid JSON:\n"
-        "{\n"
-        '  \"target_uuid\": string|null,\n'
-        '  \"confidence\": number,\n'
-        '  \"reasoning\": string\n'
-        "}\n"
-        "\n"
-        "Rules:\n"
-        "- target_uuid MUST be one of the candidate uuids or null.\n"
-        "- If uncertain, return null with low confidence.\n"
-        "\n"
-        "Session:\n"
-        f"{_session_text(session_payload)}\n"
-        "\n"
-        "Candidate tasks (JSON):\n"
-        f"{json.dumps(cand_json, ensure_ascii=False)}\n"
+    prompt = render_prompt(
+        settings.agent_dir,
+        "sessions.codex.match_task.v1",
+        {
+            "ctx": ctx,
+            "session_text": _session_text(session_payload),
+            "candidates_json": json.dumps(cand_json, ensure_ascii=False),
+        },
     )
 
     try:

@@ -11,12 +11,13 @@ If you're running the runtime locally, this is where the Agent's **Soul / Memory
 3. Read `memory/YYYY-MM-DD.md` (today + yesterday) — short-term continuity
 4. (Optional) Read `MEMORY.md` — curated long-term memory
 5. Read `HEARTBEAT.md` — what background checks should run
+6. (Optional) Edit prompt overrides under `prompts/` (advanced)
 
 ## What Gets Generated
 
 - Daily logs: `memory/YYYY-MM-DD.md`
 - Heartbeat state: `memory/heartbeat-state.json`
 - Optional history snapshots: `history/`
+- Prompt overrides: `prompts/*.md`
 
 These are intended to be **machine-local** (and are gitignored by default).
-

@@ -16,6 +16,7 @@ from ai_tasks_runtime.agent_workspace import (
 )
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
+from ai_tasks_runtime.prompts import render_prompt
 
 
 app = FastAPI(title="AI Tasks Runtime", version="0.0.0")
@@ -110,14 +111,13 @@ def agent_ask(req: AgentAskRequest) -> AgentAskResponse:
     files = load_agent_files(agent_dir, include=include)
     prelude = build_agent_context_prelude(files)
 
-    prompt = "\n".join(
-        [
-            prelude.rstrip(),
-            "# Task",
-            (req.prompt or "").strip(),
-            "",
-            "Return plain text only.",
-        ]
+    prompt = render_prompt(
+        agent_dir,
+        "agent.ask.v1",
+        {
+            "prelude": prelude.rstrip(),
+            "task": (req.prompt or "").strip(),
+        },
     ).lstrip()
 
     result = run_codex_exec(
@@ -228,30 +228,21 @@ def _codex_propose(req: BoardProposeRequest) -> Optional[BoardProposeResponse]:
     except Exception:
         ctx = ""
 
-    prompt = ctx + (
-        "You are helping maintain an Obsidian Markdown task board.\n"
-        "Given a user draft text, decide whether to create a new task or update an existing one.\n"
-        "Return ONLY valid JSON with this shape:\n"
-        "{\n"
-        '  "action": "create"|"update",\n'
-        '  "target_uuid": string|null,\n'
-        '  "title": string,\n'
-        '  "status": "Unassigned"|"Todo"|"Doing"|"Review"|"Done",\n'
-        '  "tags": string[],\n'
-        '  "body": string,\n'
-        '  "reasoning": string,\n'
-        '  "confidence": number\n'
-        "}\n"
-        "\n"
-        f"Mode hint: {req.mode}\n"
-        "Existing tasks (JSON):\n"
-        f"{json.dumps(tasks_json, ensure_ascii=False)}\n"
-        "\n"
-        "User draft:\n"
-        f"{req.draft}\n"
+    instruction_block = ""
+    if req.instruction and req.instruction.strip():
+        instruction_block = f"Additional user instruction:\n{req.instruction.strip()}\n"
+
+    prompt = render_prompt(
+        agent_dir,
+        "board.propose.v1",
+        {
+            "ctx": ctx,
+            "mode": req.mode,
+            "tasks_json": json.dumps(tasks_json, ensure_ascii=False),
+            "draft": req.draft,
+            "instruction_block": instruction_block,
+        },
     )
-    if req.instruction:
-        prompt += f"\nAdditional user instruction:\n{req.instruction}\n"
 
     result = run_codex_exec(
         prompt,

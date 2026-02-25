@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from ai_tasks_runtime.prompts import ensure_prompt_files
+
 
 AGENT_FILES = [
     "AGENTS.md",
@@ -41,6 +43,7 @@ _DEFAULT_TEMPLATES: Dict[str, str] = {
         "3. Read `memory/YYYY-MM-DD.md` (today + yesterday) — short-term continuity\n"
         "4. (Optional) Read `MEMORY.md` — curated long-term memory\n"
         "5. Read `HEARTBEAT.md` — what background checks should run\n"
+        "6. (Optional) Edit prompt overrides under `prompts/` (advanced)\n"
     ),
     "SOUL.md": (
         "# SOUL.md - AI Tasks Board Agent\n\n"
@@ -154,6 +157,14 @@ def ensure_agent_workspace(agent_dir: Path, *, force: bool = False) -> Dict[str,
             encoding="utf-8",
         )
         created[f"{MEMORY_DIRNAME}/README.md"] = "created"
+
+    # Prompt overrides (missing-only by default).
+    try:
+        ensure_prompt_files(agent_dir, force=False)
+        created["prompts"] = "ok"
+    except Exception:
+        # Prompts are optional; runtime has built-in defaults.
+        created["prompts"] = "error"
 
     return created
 

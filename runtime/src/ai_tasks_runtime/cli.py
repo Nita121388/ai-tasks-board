@@ -18,6 +18,7 @@ from ai_tasks_runtime.agent_workspace import (
 )
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
+from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.sessions import ensure_sessions_state, load_sessions_state, sync_codex_sessions
 
 
@@ -98,14 +99,13 @@ def agent_ask(
         files.extend(_read_recent_daily_memory(dir_path, days=2))
 
     prelude = build_agent_context_prelude(files)
-    full_prompt = "\n".join(
-        [
-            prelude.rstrip(),
-            "# Task",
-            prompt.strip(),
-            "",
-            "Return plain text only.",
-        ]
+    full_prompt = render_prompt(
+        dir_path,
+        "agent.ask.v1",
+        {
+            "prelude": prelude.rstrip(),
+            "task": prompt.strip(),
+        },
     ).lstrip()
 
     result = run_codex_exec(
