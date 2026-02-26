@@ -26,6 +26,10 @@ pip install -e .
 # HTTP runtime (board propose, codex exec)
 ai-tasks-runtime serve
 
+# Agentic (tool-calling) board apply: let the agent update Board.md via tools
+# NOTE: This writes to the vault and snapshots history.
+ai-tasks-runtime board apply /path/to/your/vault "Draft text here" --instruction "Optional extra instruction" --board-path "Tasks/Boards/Board.md"
+
 # Sessions collector (Codex only for now; Mode B)
 # - First run init once (ignores historical sessions before init)
 # - Then sync/watch new sessions into `Vault/Sessions/codex/*.json`
@@ -62,6 +66,25 @@ cd ai-tasks-board/obsidian-plugin
 npm install
 npm run build
 ```
+
+#### Using the board (in-note UI)
+
+- Command: `AI Tasks: Open board note`
+  - Opens (or creates) your `Board.md`.
+  - When enabled, the plugin renders a draggable board UI directly in the note area (works in both editor + reading mode).
+  - Underlying Markdown storage remains in `Board.md` but is hidden by default (toggle in plugin settings).
+- Context menu (any note): select text -> right click
+  - `AI Tasks: Add to board`
+  - `AI Tasks: Update board (AI)`
+
+#### History + AI logs (vault files)
+
+- Board history snapshots (before each write):
+  - If board path contains `/Boards/`: `Tasks/History/Boards/Board.<timestamp>.md`
+  - Otherwise: next to your board file under `History/`
+- AI runtime call logs (JSONL):
+  - If board path contains `/Boards/`: `Tasks/History/Logs/ai-tasks.YYYY-MM-DD.jsonl`
+  - Otherwise: next to your board file under `History/`
 
 ## Notes
 

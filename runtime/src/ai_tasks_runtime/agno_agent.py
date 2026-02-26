@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, Union
 
 from agno.agent import Agent
+from agno.tools import Toolkit
+from agno.tools.function import Function
 
 from ai_tasks_runtime.agno_models.codex_cli_model import CodexCLIModel
 from ai_tasks_runtime.config import settings
@@ -18,7 +20,12 @@ class AgentRunResult:
     provider_data: Optional[Dict[str, Any]] = None
 
 
-def build_codex_cli_agent(*, timeout_s: int = 120, cwd: Optional[Path] = None) -> Agent:
+def build_codex_cli_agent(
+    *,
+    timeout_s: int = 120,
+    cwd: Optional[Path] = None,
+    tools: Optional[Sequence[Union[Toolkit, Function, dict]]] = None,
+) -> Agent:
     """Build an Agno Agent backed by local Codex CLI.
 
     This is the "Agno-native" execution path for AI Tasks Board. It keeps the model provider
@@ -43,11 +50,18 @@ def build_codex_cli_agent(*, timeout_s: int = 120, cwd: Optional[Path] = None) -
         parse_response=False,
         markdown=False,
         telemetry=False,
+        tools=list(tools) if tools is not None else None,
     )
 
 
-def run_agent_text(prompt: str, *, timeout_s: int = 120, cwd: Optional[Path] = None) -> AgentRunResult:
-    agent = build_codex_cli_agent(timeout_s=timeout_s, cwd=cwd)
+def run_agent_text(
+    prompt: str,
+    *,
+    timeout_s: int = 120,
+    cwd: Optional[Path] = None,
+    tools: Optional[Sequence[Union[Toolkit, Function, dict]]] = None,
+) -> AgentRunResult:
+    agent = build_codex_cli_agent(timeout_s=timeout_s, cwd=cwd, tools=tools)
     out = agent.run(prompt)
 
     text = out.get_content_as_string()
@@ -61,4 +75,3 @@ def run_agent_text(prompt: str, *, timeout_s: int = 120, cwd: Optional[Path] = N
             usage = provider_data.get("usage")
 
     return AgentRunResult(text=text, thread_id=thread_id, usage=usage, provider_data=provider_data)
-

@@ -4,10 +4,17 @@
 
 .ai-tasks-board-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.ai-tasks-board-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 140px;
 }
 
 .ai-tasks-board-title {
@@ -17,12 +24,18 @@
 
 .ai-tasks-board-controls {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .ai-tasks-board-select {
   min-width: 160px;
+}
+
+.ai-tasks-board-search {
+  min-width: 220px;
 }
 
 .ai-tasks-board-tags {
@@ -42,7 +55,7 @@
 .ai-tasks-board-tags-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -51,31 +64,59 @@
   opacity: 0.75;
 }
 
-.ai-tasks-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
+.ai-tasks-tag-chip {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+}
+
+.ai-tasks-tag-chip.is-active {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary));
 }
 
 .ai-tasks-board-columns {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
-  gap: 10px;
-  align-items: start;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 6px;
 }
 
 .ai-tasks-column {
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px;
   background: var(--background-secondary);
+  flex: 0 0 280px;
+}
+
+.ai-tasks-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .ai-tasks-column-title {
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.ai-tasks-column-add {
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
 }
 
 .ai-tasks-column-list {
@@ -92,9 +133,15 @@
 
 .ai-task-card {
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px;
   background: var(--background-primary);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  cursor: pointer;
+}
+
+.ai-task-card:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
 }
 
 .ai-task-card.is-dragging {
@@ -115,10 +162,17 @@
   flex: 1;
 }
 
+.ai-task-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .ai-task-status {
   font-size: 12px;
 }
 
+.ai-task-edit,
 .ai-task-archive {
   font-size: 12px;
 }
@@ -143,6 +197,23 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
   background: var(--background-secondary);
+}
+
+/* Board note overlay (editor + reading mode) */
+.ai-tasks-board-note-overlay-active {
+  position: relative;
+}
+
+.ai-tasks-board-note-overlay-active .markdown-source-view,
+.ai-tasks-board-note-overlay-active .markdown-preview-view {
+  display: none;
+}
+
+.ai-tasks-board-note-overlay-host {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--background-primary);
 }
 
 /* Draft / preview modal */
@@ -196,4 +267,36 @@
   .ai-tasks-draft-preview {
     grid-template-columns: 1fr;
   }
+}
+
+/* Task edit modal */
+.ai-tasks-edit-modal .ai-tasks-form-row {
+  margin: 10px 0;
+}
+
+.ai-tasks-edit-modal .ai-tasks-form-label {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+.ai-tasks-edit-modal .ai-tasks-form-input,
+.ai-tasks-edit-modal .ai-tasks-form-select,
+.ai-tasks-edit-modal .ai-tasks-form-textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-tasks-edit-modal .ai-tasks-form-textarea {
+  min-height: 160px;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-tasks-edit-modal .ai-tasks-form-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
 }

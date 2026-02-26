@@ -14,3 +14,7 @@
 ## 2026-02-26
 
 - Refactored runtime LLM calls to be more Agno-native: route Agent ask / board propose / sessions summarize+match through `agno.Agent` backed by `CodexCLIModel` (local `codex exec --json`).
+- Implemented Agno tool-calling mode (option 2): `CodexCLIModel` can emit tool calls; added `BoardToolkit` tools and `/v1/board/agent/apply` + `ai-tasks-runtime board apply` to let an agent update `Board.md` via tools.
+- Obsidian plugin: replaced the Board.md note content with an in-note draggable board UI (editor + reading mode) and hid raw Markdown by default (toggleable setting).
+- Obsidian plugin: fixed the escaped-newline bug (literal `\\n` in Board.md) and added auto-migration + history snapshot when detected.
+- Obsidian plugin: added vault-side JSONL logs for AI calls and board writes; UI shows `engine=ai|heuristic` + confidence/reasoning when available.

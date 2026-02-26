@@ -396,3 +396,115 @@ def add_session_ref_to_block(block: str, session_ref: str) -> str:
     lines.insert(insert_after + 1, f"> sessions:: {ref}")
     return "\n".join(lines).rstrip("\n") + "\n"
 
+
+def rewrite_status_field(block: str, new_status: str) -> str:
+    """Rewrite (or insert) the `status::` field inside a task block."""
+    st = normalize_status(new_status) or "Unassigned"
+    lines = block.replace("\r\n", "\n").split("\n")
+    changed = False
+    out: List[str] = []
+    for line in lines:
+        if re.match(r"^>\s*status::\s*(.+)\s*$", line, flags=re.IGNORECASE):
+            out.append(f"> status:: {st}")
+            changed = True
+        else:
+            out.append(line)
+
+    if not changed:
+        # Insert after the callout line if missing.
+        for i, line in enumerate(out):
+            if re.match(r"^>\s*\[![^\]]+\]", line):
+                out.insert(i + 1, f"> status:: {st}")
+                changed = True
+                break
+
+    return "\n".join(out)
+
+
+def remove_task_block(content: str, task_uuid: str) -> Tuple[TaskBlock, str]:
+    """Remove a task block by UUID and return (removed_task, next_content)."""
+    parsed = parse_board(content)
+
+    tuid = (task_uuid or "").lower()
+    existing: Optional[TaskBlock] = None
+    for section in parsed.sections.values():
+        for t in section.tasks:
+            if t.uuid == tuid:
+                existing = t
+                break
+        if existing:
+            break
+    if not existing:
+        raise ValueError(f"Task not found: {task_uuid}")
+
+    next_content = content[: existing.start] + content[existing.end :]
+    return existing, next_content
+
+
+def move_task_block(content: str, task_uuid: str, to_status: str, before_uuid: Optional[str]) -> str:
+    """Move a task block to a different status section (and optionally reorder within it)."""
+    parsed = parse_board(content)
+    tuid = (task_uuid or "").lower()
+    target_status = normalize_status(to_status) or "Unassigned"
+
+    moving: Optional[TaskBlock] = None
+    from_status: Optional[str] = None
+    for status, section in parsed.sections.items():
+        for t in section.tasks:
+            if t.uuid == tuid:
+                moving = t
+                from_status = status
+                break
+        if moving:
+            break
+    if not moving or not from_status:
+        raise ValueError(f"Task not found: {task_uuid}")
+
+    effective_before = None if (before_uuid or "").lower() == tuid else (before_uuid.lower() if before_uuid else None)
+
+    block = moving.raw
+    if from_status != target_status:
+        block = rewrite_status_field(block, target_status)
+
+    # Remove first.
+    next_content = content[: moving.start] + content[moving.end :]
+
+    # Re-parse after removal to get correct offsets for insertion.
+    parsed_after = parse_board(next_content)
+    insert_at = _find_insertion_point(parsed_after, target_status, effective_before)
+
+    prefix = next_content[:insert_at]
+    suffix = next_content[insert_at:]
+    needs_leading_nl = bool(prefix) and not prefix.endswith("\n")
+    needs_trailing_nl = not block.endswith("\n")
+    final_block = ("\n" if needs_leading_nl else "") + block + ("\n" if needs_trailing_nl else "")
+    return prefix + final_block + suffix
+
+
+def mark_task_archived(block: str, archived_at_iso: str) -> str:
+    """Insert/update the `archived::` field inside a task block."""
+    lines = block.replace("\r\n", "\n").rstrip("\n").split("\n")
+    archived_idx = -1
+    for i, line in enumerate(lines):
+        if re.match(r"^>\s*archived::", line, flags=re.IGNORECASE):
+            archived_idx = i
+            break
+    if archived_idx != -1:
+        lines[archived_idx] = f"> archived:: {archived_at_iso}"
+        return "\n".join(lines).rstrip("\n") + "\n"
+
+    created_idx = next((i for i, l in enumerate(lines) if re.match(r"^>\s*created::", l, flags=re.IGNORECASE)), -1)
+    status_idx = next((i for i, l in enumerate(lines) if re.match(r"^>\s*status::", l, flags=re.IGNORECASE)), -1)
+    header_idx = next((i for i, l in enumerate(lines) if re.match(r"^>\s*\[![^\]]+\]", l)), -1)
+
+    if created_idx != -1:
+        insert_at = created_idx + 1
+    elif status_idx != -1:
+        insert_at = status_idx + 1
+    elif header_idx != -1:
+        insert_at = header_idx + 1
+    else:
+        insert_at = 1
+
+    lines.insert(insert_at, f"> archived:: {archived_at_iso}")
+    return "\n".join(lines).rstrip("\n") + "\n"

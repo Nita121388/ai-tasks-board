@@ -27,6 +27,7 @@ export type AiTasksBoardSettings = {
   modelTemperature: number;
   modelMaxTokens: number;
   modelTopP: number;
+  renderBoardInNote: boolean;
 };
 
 export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
@@ -43,6 +44,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   modelTemperature: 0.2,
   modelMaxTokens: 1024,
   modelTopP: 1,
+  renderBoardInNote: true,
 };
 
 function parseNumber(value: string, fallback: number): number {
@@ -72,7 +74,19 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.boardPath = value.trim();
             await this.plugin.saveSettings();
+            this.plugin.requestOverlayUpdate();
           });
+      });
+
+    new Setting(containerEl)
+      .setName("Render board in note")
+      .setDesc("Replace Board.md with a draggable visual board in the note area (editor + preview).")
+      .addToggle((toggle) => {
+        toggle.setValue(Boolean(this.plugin.settings.renderBoardInNote)).onChange(async (value) => {
+          this.plugin.settings.renderBoardInNote = value;
+          await this.plugin.saveSettings();
+          this.plugin.requestOverlayUpdate();
+        });
       });
 
     new Setting(containerEl)

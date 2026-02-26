@@ -56,6 +56,28 @@ PROMPTS: Dict[str, PromptSpec] = {
             "{{instruction_block}}"
         ),
     ),
+    "board.agent.apply.v1": PromptSpec(
+        key="board.agent.apply.v1",
+        filename="board.agent.apply.v1.md",
+        description="Use tools to create/update tasks in Board.md from a user draft (agentic tool-calling mode).",
+        template=(
+            "{{ctx}}"
+            "You are maintaining an Obsidian Markdown task board.\n"
+            "Use the available tools to inspect the board and then create/update/move/archive tasks.\n"
+            "\n"
+            "Rules:\n"
+            "- Prefer minimal changes. Do not rewrite the whole board.\n"
+            "- If unsure which task to update, create a new task instead of guessing.\n"
+            "- After tool calls finish, reply with a short summary (what changed, which UUIDs).\n"
+            "\n"
+            "Mode hint: {{mode}}\n"
+            "\n"
+            "User draft:\n"
+            "{{draft}}\n"
+            "\n"
+            "{{instruction_block}}"
+        ),
+    ),
     "sessions.codex.summarize.v1": PromptSpec(
         key="sessions.codex.summarize.v1",
         filename="sessions.codex.summarize.v1.md",
@@ -192,4 +214,3 @@ def ensure_prompt_files(agent_dir: Path, *, force: bool = False) -> Dict[str, st
         created[f"{PROMPTS_DIRNAME}/{spec.filename}"] = "written" if force else "created"
 
     return created
-

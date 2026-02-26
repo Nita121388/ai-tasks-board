@@ -21,6 +21,7 @@ from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
 from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.sessions import ensure_sessions_state, load_sessions_state, sync_codex_sessions
+from ai_tasks_runtime.tools.board_toolkit import BoardToolkit
 
 
 app = typer.Typer(no_args_is_help=True)
@@ -28,6 +29,8 @@ sessions_app = typer.Typer(no_args_is_help=True)
 app.add_typer(sessions_app, name="sessions")
 agent_app = typer.Typer(no_args_is_help=True)
 app.add_typer(agent_app, name="agent")
+board_app = typer.Typer(no_args_is_help=True)
+app.add_typer(board_app, name="board")
 
 
 @app.command()
@@ -137,6 +140,44 @@ def agent_heartbeat(agent_dir: Optional[str] = None, watch: bool = False, poll_s
         if res.get("ran"):
             typer.echo(json.dumps(res, ensure_ascii=False))
         time.sleep(max(1, poll_s))
+
+
+@board_app.command("apply")
+def board_apply(
+    vault: str,
+    draft: str,
+    instruction: Optional[str] = None,
+    mode: str = "auto",
+    board_path: str = "Tasks/Boards/Board.md",
+    timeout_s: int = 120,
+) -> None:
+    """Agentic tool-calling: apply a draft to Board.md via Agno tools (writes the board with history snapshots)."""
+    vault_dir = Path(vault).expanduser().resolve()
+    if not vault_dir.exists():
+        raise typer.BadParameter(f"vault does not exist: {vault_dir}")
+
+    ensure_agent_workspace(settings.agent_dir, force=False)
+    ctx_files = load_agent_files(settings.agent_dir, include=["SOUL.md", "AGENTS.md"])
+    ctx = build_agent_context_prelude(ctx_files)
+
+    instruction_block = ""
+    if instruction and instruction.strip():
+        instruction_block = f"Additional user instruction:\n{instruction.strip()}\n"
+
+    prompt = render_prompt(
+        settings.agent_dir,
+        "board.agent.apply.v1",
+        {
+            "ctx": ctx,
+            "mode": (mode or "auto").strip().lower(),
+            "draft": (draft or "").strip(),
+            "instruction_block": instruction_block,
+        },
+    )
+
+    toolkit = BoardToolkit(vault_dir=vault_dir, board_rel_path=board_path)
+    result = run_agent_text(prompt, timeout_s=timeout_s, cwd=settings.codex_cwd, tools=[toolkit])
+    typer.echo(result.text)
 
 
 @sessions_app.command("init")

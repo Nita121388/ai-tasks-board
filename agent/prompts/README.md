@@ -9,8 +9,8 @@ Rules:
 - If you break JSON constraints, the runtime will fall back to heuristics.
 
 Files:
+- `board.agent.apply.v1.md` (board.agent.apply.v1)
 - `board.propose.v1.md` (board.propose.v1)
 - `sessions.codex.summarize.v1.md` (sessions.codex.summarize.v1)
 - `sessions.codex.match_task.v1.md` (sessions.codex.match_task.v1)
 - `agent.ask.v1.md` (agent.ask.v1)
-

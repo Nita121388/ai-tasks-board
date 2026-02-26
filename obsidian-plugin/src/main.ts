@@ -1,10 +1,11 @@
-import { Editor, MarkdownView, Menu, Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { Editor, MarkdownView, Menu, Notice, Plugin, TFile } from "obsidian";
 import { spawn, type ChildProcess } from "child_process";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiModelConfig, type AiTasksBoardSettings } from "./settings";
-import { AI_TASKS_VIEW_TYPE, AiTasksBoardView } from "./view";
 import { AiTasksDraftModal } from "./draft_modal";
+import { ensureFolder } from "./board_fs";
+import { BoardNoteOverlayManager } from "./board_note_overlay";
 
 type RuntimeStatusResponse = {
   ok?: boolean;
@@ -29,10 +30,36 @@ function splitArgs(input: string): string[] {
   return out;
 }
 
+function buildDefaultBoardMarkdown(): string {
+  return [
+    "---",
+    "schema: ai-tasks-board/v1",
+    "board_id: ai-tasks-board",
+    "statuses: [Unassigned, Todo, Doing, Review, Done]",
+    "---",
+    "",
+    "# AI Tasks Board",
+    "",
+    "<!-- AI-TASKS:BEGIN -->",
+    "## Unassigned",
+    "",
+    "## Todo",
+    "",
+    "## Doing",
+    "",
+    "## Review",
+    "",
+    "## Done",
+    "<!-- AI-TASKS:END -->",
+    "",
+  ].join("\n");
+}
+
 export default class AiTasksBoardPlugin extends Plugin {
   settings: AiTasksBoardSettings;
   private runtimeProcess: ChildProcess | null = null;
   private runtimePid: number | null = null;
+  private boardOverlay: BoardNoteOverlayManager | null = null;
 
   private getPluginDir(): string | null {
     const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
@@ -43,16 +70,38 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
-
-    this.registerView(AI_TASKS_VIEW_TYPE, (leaf) => new AiTasksBoardView(leaf, this));
+    this.boardOverlay = new BoardNoteOverlayManager(this);
 
     this.addCommand({
-      id: "open-ai-tasks-board",
-      name: "Open AI Tasks board",
+      id: "open-ai-tasks-board-note",
+      name: "AI Tasks: Open board note",
       callback: async () => {
-        await this.activateView();
+        const boardPath = this.settings.boardPath;
+        const abs = this.app.vault.getAbstractFileByPath(boardPath);
+        if (abs instanceof TFile) {
+          await this.app.workspace.getLeaf().openFile(abs);
+          return;
+        }
+
+        const parent = boardPath.split("/").slice(0, -1).join("/");
+        if (parent) await ensureFolder(this.app.vault, parent);
+        const f = await this.app.vault.create(boardPath, buildDefaultBoardMarkdown());
+        await this.app.workspace.getLeaf().openFile(f);
       },
     });
+
+    // Board note overlay: render the draggable board UI directly in the note area
+    // (both editor + reading modes), and keep raw Markdown hidden by default.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.requestOverlayUpdate()));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.requestOverlayUpdate()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.requestOverlayUpdate()));
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file.path !== this.settings.boardPath) return;
+        this.boardOverlay?.requestRefresh();
+      })
+    );
+    this.requestOverlayUpdate();
 
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor, view: MarkdownView) => {
@@ -83,20 +132,12 @@ export default class AiTasksBoardPlugin extends Plugin {
   }
 
   onunload(): void {
-    this.app.workspace.detachLeavesOfType(AI_TASKS_VIEW_TYPE);
+    this.boardOverlay?.dispose();
+    this.boardOverlay = null;
   }
 
-  async activateView(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(AI_TASKS_VIEW_TYPE);
-    const existingLeaf = existing[0];
-    if (existingLeaf) {
-      this.app.workspace.revealLeaf(existingLeaf);
-      return;
-    }
-
-    const leaf: WorkspaceLeaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf();
-    await leaf.setViewState({ type: AI_TASKS_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(leaf);
+  requestOverlayUpdate(): void {
+    void this.boardOverlay?.updateAll();
   }
 
   async loadSettings(): Promise<void> {
@@ -238,3 +279,4 @@ export default class AiTasksBoardPlugin extends Plugin {
     }
   }
 }
+

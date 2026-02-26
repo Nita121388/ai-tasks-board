@@ -13,6 +13,24 @@ const ALL_STATUSES: BoardStatus[] = [
 const TASK_BEGIN_RE =
   /<!--\s*AI-TASKS:TASK\s+([0-9a-fA-F-]{8,})\s+BEGIN\s*-->/g;
 
+export function normalizeEscapedNewlines(content: string): { next: string; changed: boolean } {
+  // A historical bug wrote literal "\\n" sequences into Board.md and task blocks.
+  // Fix it opportunistically so parsing/editing works and the Markdown stays readable.
+  if (!content.includes("\\n") && !content.includes("\\r\\n") && !content.includes("\r\n")) {
+    return { next: content, changed: false };
+  }
+
+  let next = content;
+
+  // Normalize literal sequences first (backslash + r/n), then normalize actual CRLF.
+  // Order matters: replacing CRLF first could hide the literal pattern in some edge cases.
+  next = next.replace(/\\r\\n/g, "\n");
+  next = next.replace(/\\n/g, "\n");
+  next = next.replace(/\r\n/g, "\n");
+
+  return { next, changed: next !== content };
+}
+
 function normalizeStatus(s: string): BoardStatus | null {
   const t = s.trim();
   if (t === "Unassigned") return "Unassigned";

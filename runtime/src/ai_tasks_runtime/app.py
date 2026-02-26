@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from pydantic import BaseModel
@@ -25,6 +25,7 @@ from ai_tasks_runtime.agno_agent import run_agent_text
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
 from ai_tasks_runtime.prompts import render_prompt
+from ai_tasks_runtime.tools.board_toolkit import BoardToolkit
 
 
 app = FastAPI(title="AI Tasks Runtime", version="0.0.0")
@@ -103,6 +104,22 @@ class BoardProposeResponse(BaseModel):
     body: str = ""
     reasoning: Optional[str] = None
     confidence: Optional[float] = None
+    engine: Literal["ai", "heuristic"] = "heuristic"
+
+
+class BoardAgentApplyRequest(BaseModel):
+    vault: str
+    board_path: str = "Tasks/Boards/Board.md"
+    mode: Literal["auto", "create", "update"] = "auto"
+    draft: str
+    instruction: Optional[str] = None
+    timeout_s: int = 120
+
+
+class BoardAgentApplyResponse(BaseModel):
+    text: str
+    thread_id: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
 
 
 class RuntimeShutdownRequest(BaseModel):
@@ -353,6 +370,7 @@ def _openai_compat_propose(req: BoardProposeRequest, cfg: ModelConfig) -> Option
         body=str(obj.get("body") or ""),
         reasoning=str(obj.get("reasoning") or "") or None,
         confidence=float(obj.get("confidence")) if obj.get("confidence") is not None else None,
+        engine="ai",
     )
 
 
@@ -405,6 +423,7 @@ def _codex_propose(req: BoardProposeRequest) -> Optional[BoardProposeResponse]:
         body=str(obj.get("body") or ""),
         reasoning=str(obj.get("reasoning") or "") or None,
         confidence=float(obj.get("confidence")) if obj.get("confidence") is not None else None,
+        engine="ai",
     )
 
 
@@ -438,6 +457,7 @@ def _heuristic_propose(req: BoardProposeRequest) -> BoardProposeResponse:
             body=draft,
             reasoning=f"heuristic match title overlap score={score:.2f}",
             confidence=min(0.9, max(0.2, score)),
+            engine="heuristic",
         )
 
     return BoardProposeResponse(
@@ -449,6 +469,7 @@ def _heuristic_propose(req: BoardProposeRequest) -> BoardProposeResponse:
         body=draft,
         reasoning="heuristic create (no strong match)",
         confidence=0.3,
+        engine="heuristic",
     )
 
 
@@ -471,3 +492,39 @@ def board_propose(req: BoardProposeRequest) -> BoardProposeResponse:
         logger.exception("board_propose failed; falling back to heuristic", exc_info=exc)
 
     return _heuristic_propose(req)
+
+
+@app.post("/v1/board/agent/apply", response_model=BoardAgentApplyResponse)
+def board_agent_apply(req: BoardAgentApplyRequest) -> BoardAgentApplyResponse:
+    """Agentic tool-calling flow: apply a draft to Board.md via BoardToolkit tools.
+
+    This endpoint writes to the vault on disk and snapshots history before modifications.
+    """
+
+    vault_dir = Path(req.vault).expanduser().resolve()
+    if not vault_dir.exists():
+        raise HTTPException(status_code=400, detail=f"vault does not exist: {vault_dir}")
+
+    agent_dir = settings.agent_dir
+    ensure_agent_workspace(agent_dir, force=False)
+    ctx_files = load_agent_files(agent_dir, include=["SOUL.md", "AGENTS.md"])
+    ctx = build_agent_context_prelude(ctx_files)
+
+    instruction_block = ""
+    if req.instruction and req.instruction.strip():
+        instruction_block = f"Additional user instruction:\n{req.instruction.strip()}\n"
+
+    prompt = render_prompt(
+        agent_dir,
+        "board.agent.apply.v1",
+        {
+            "ctx": ctx,
+            "mode": req.mode,
+            "draft": (req.draft or "").strip(),
+            "instruction_block": instruction_block,
+        },
+    )
+
+    toolkit = BoardToolkit(vault_dir=vault_dir, board_rel_path=req.board_path)
+    result = run_agent_text(prompt, timeout_s=req.timeout_s, cwd=settings.codex_cwd, tools=[toolkit])
+    return BoardAgentApplyResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)

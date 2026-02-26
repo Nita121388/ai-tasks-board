@@ -1,7 +1,9 @@
 import { Modal, Notice, TFile, Vault } from "obsidian";
 import type AiTasksBoardPlugin from "./main";
 import type { AiModelConfig } from "./settings";
-import { insertTaskBlock, moveTaskBlock, parseBoard, replaceTaskBlock } from "./board";
+import { insertTaskBlock, moveTaskBlock, normalizeEscapedNewlines, parseBoard, replaceTaskBlock } from "./board";
+import { appendAiTasksLog } from "./ai_log";
+import { ensureFolder, writeWithHistory } from "./board_fs";
 import type { BoardStatus } from "./types";
 
 type ProposeMode = "auto" | "create" | "update";
@@ -30,6 +32,7 @@ type BoardProposeResponse = {
   body: string;
   reasoning?: string | null;
   confidence?: number | null;
+  engine?: string | null;
 };
 
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
@@ -66,36 +69,6 @@ function randomUuid(): string {
   });
 }
 
-function nowIsoForFilename(): string {
-  // Avoid ':' for Windows compatibility.
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function deriveHistoryPath(boardPath: string, ts: string): string {
-  const baseName = boardPath.split("/").pop() ?? "Board.md";
-  const stamped = baseName.replace(/\\.md$/i, `.${ts}.md`);
-
-  const idx = boardPath.lastIndexOf("/Boards/");
-  if (idx !== -1) {
-    const prefix = boardPath.slice(0, idx);
-    return `${prefix}/History/Boards/${stamped}`;
-  }
-
-  // Fallback: put history next to the board file.
-  const parent = boardPath.split("/").slice(0, -1).join("/");
-  return `${parent}/History/${stamped}`;
-}
-
-async function ensureFolder(vault: Vault, folderPath: string): Promise<void> {
-  const parts = folderPath.split("/").filter((p) => p.length > 0);
-  let current = "";
-  for (const p of parts) {
-    current = current ? `${current}/${p}` : p;
-    const existing = vault.getAbstractFileByPath(current);
-    if (!existing) await vault.createFolder(current);
-  }
-}
-
 function buildDefaultBoardMarkdown(): string {
   return [
     "---",
@@ -118,7 +91,7 @@ function buildDefaultBoardMarkdown(): string {
     "## Done",
     "<!-- AI-TASKS:END -->",
     "",
-  ].join("\\n");
+  ].join("\n");
 }
 
 async function getOrCreateBoardFile(plugin: AiTasksBoardPlugin): Promise<TFile> {
@@ -153,7 +126,7 @@ async function callRuntimePropose(
 }
 
 function asCalloutLines(text: string): string[] {
-  const lines = text.replace(/\\r\\n/g, "\\n").split("\\n");
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
   return lines.map((l) => (l.length ? `> ${l}` : ">"));
 }
 
@@ -176,7 +149,7 @@ function buildNewTaskBlock(opts: {
   lines.push(">");
   lines.push(...asCalloutLines(opts.body));
   lines.push(`<!-- AI-TASKS:TASK ${opts.uuid} END -->`);
-  return lines.join("\\n") + "\\n";
+  return lines.join("\n") + "\n";
 }
 
 function patchExistingTaskBlock(beforeBlock: string, opts: {
@@ -187,7 +160,7 @@ function patchExistingTaskBlock(beforeBlock: string, opts: {
   body: string;
   instruction?: string | null;
 }): string {
-  const lines = beforeBlock.replace(/\\r\\n/g, "\\n").replace(/\\n$/, "").split("\\n");
+  const lines = beforeBlock.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
   const endRe = new RegExp(`^<!--\\s*AI-TASKS:TASK\\s+${opts.uuid}\\s+END\\s*-->\\s*$`, "i");
   const endIdx = lines.findIndex((l) => endRe.test(l.trim()));
   if (endIdx === -1) throw new Error("Malformed task block (missing END marker).");
@@ -228,7 +201,7 @@ function patchExistingTaskBlock(beforeBlock: string, opts: {
 
   lines.splice(endIdx, 0, ...updateLines);
 
-  return lines.join("\\n") + "\\n";
+  return lines.join("\n") + "\n";
 }
 
 export class AiTasksDraftModal extends Modal {
@@ -325,7 +298,12 @@ export class AiTasksDraftModal extends Modal {
       this.setStatus("Generating preview...");
 
       this.boardFile = await getOrCreateBoardFile(this.plugin);
-      this.boardContent = await this.plugin.app.vault.read(this.boardFile);
+      const raw = await this.plugin.app.vault.read(this.boardFile);
+      const norm = normalizeEscapedNewlines(raw);
+      if (norm.changed) {
+        await writeWithHistory(this.plugin.app.vault, this.boardFile, norm.next);
+      }
+      this.boardContent = norm.next;
 
       const parsed = parseBoard(this.boardContent);
       const tasks: TaskSummary[] = Array.from(parsed.sections.values()).flatMap((s) =>
@@ -345,7 +323,35 @@ export class AiTasksDraftModal extends Modal {
         ai_model: this.plugin.getModelConfig(),
       };
 
-      this.proposal = await callRuntimePropose(this.plugin, req);
+      await appendAiTasksLog(this.plugin, {
+        type: "board.propose.request",
+        mode: req.mode,
+        draft_len: req.draft.length,
+        instruction_len: (req.instruction ?? "").length,
+        tasks_count: req.tasks.length,
+        runtime_url: this.plugin.settings.runtimeUrl,
+      });
+
+      try {
+        this.proposal = await callRuntimePropose(this.plugin, req);
+        await appendAiTasksLog(this.plugin, {
+          type: "board.propose.response",
+          engine: this.proposal.engine ?? null,
+          action: this.proposal.action,
+          target_uuid: this.proposal.target_uuid ?? null,
+          status: this.proposal.status,
+          tags: this.proposal.tags,
+          confidence: this.proposal.confidence ?? null,
+          reasoning: this.proposal.reasoning ?? null,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await appendAiTasksLog(this.plugin, {
+          type: "board.propose.error",
+          error: msg,
+        });
+        throw e;
+      }
 
       const action = this.proposal.action;
       const status = normalizeStatus(this.proposal.status);
@@ -407,6 +413,7 @@ export class AiTasksDraftModal extends Modal {
       if (this.afterEl) this.afterEl.value = this.afterBlock;
 
       const meta = [];
+      if (this.proposal.engine) meta.push(`engine=${this.proposal.engine}`);
       if (this.proposal.reasoning) meta.push(this.proposal.reasoning);
       if (this.proposal.confidence != null) meta.push(`confidence=${this.proposal.confidence.toFixed(2)}`);
       this.setStatus(meta.length ? meta.join(" | ") : "Preview ready.");
@@ -432,13 +439,13 @@ export class AiTasksDraftModal extends Modal {
     }
 
     try {
-      const current = await this.plugin.app.vault.read(this.boardFile);
-      const ts = nowIsoForFilename();
-      const historyPath = deriveHistoryPath(this.boardFile.path, ts);
-      const historyFolder = historyPath.split("/").slice(0, -1).join("/");
-      await ensureFolder(this.plugin.app.vault, historyFolder);
-      await this.plugin.app.vault.create(historyPath, current);
-      await this.plugin.app.vault.modify(this.boardFile, this.nextBoardContent);
+      await writeWithHistory(this.plugin.app.vault, this.boardFile, this.nextBoardContent);
+      await appendAiTasksLog(this.plugin, {
+        type: "board.write",
+        via: "draft_modal",
+        action: this.proposal?.action ?? null,
+        target_uuid: this.proposal?.target_uuid ?? null,
+      });
       new Notice("AI Tasks: wrote board update (history snapshot created).");
       this.close();
     } catch (e) {

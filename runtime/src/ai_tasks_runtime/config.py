@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     codex_bin: str = "codex"
     codex_default_args: List[str] = [
         "--ask-for-approval",
-        "untrusted",
+        "never",
         "exec",
         "--json",
         "--color",
