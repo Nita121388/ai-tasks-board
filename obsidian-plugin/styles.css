@@ -30,6 +30,35 @@
   justify-content: flex-end;
 }
 
+.ai-tasks-board-layout {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ai-tasks-layout-btn {
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.ai-tasks-layout-btn:hover {
+  background: var(--background-modifier-hover);
+  opacity: 1;
+}
+
+.ai-tasks-layout-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  opacity: 1;
+}
+
 .ai-tasks-board-import {
   border: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
@@ -92,6 +121,172 @@
   align-items: flex-start;
   overflow-x: auto;
   padding-bottom: 6px;
+}
+
+.ai-tasks-board-split {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.ai-tasks-board-split-left,
+.ai-tasks-board-split-right {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+}
+
+.ai-tasks-board-split-left {
+  padding: 10px;
+}
+
+.ai-tasks-board-split-right {
+  padding: 12px;
+}
+
+.ai-tasks-split-section {
+  margin-bottom: 12px;
+}
+
+.ai-tasks-split-section:last-child {
+  margin-bottom: 0;
+}
+
+.ai-tasks-split-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ai-tasks-split-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.ai-tasks-split-section-count {
+  font-size: 11px;
+  opacity: 0.8;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.ai-tasks-split-add {
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.ai-tasks-split-tasklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 52px;
+}
+
+.ai-tasks-split-tasklist.is-drop-target {
+  outline: 2px dashed var(--interactive-accent);
+  outline-offset: 4px;
+}
+
+.ai-tasks-split-task {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--background-primary);
+  cursor: pointer;
+}
+
+.ai-tasks-split-task:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
+}
+
+.ai-tasks-split-task.is-selected {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+}
+
+.ai-tasks-split-task.is-dragging {
+  opacity: 0.6;
+}
+
+.ai-tasks-split-task-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-tasks-split-task-tags {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.ai-tasks-detail-empty {
+  padding: 18px;
+  opacity: 0.75;
+}
+
+.ai-tasks-detail-title {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.ai-tasks-detail-uuid {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+  font-family: var(--font-monospace);
+}
+
+.ai-tasks-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-tasks-detail-status {
+  font-size: 12px;
+}
+
+.ai-tasks-detail-edit,
+.ai-tasks-detail-archive {
+  font-size: 12px;
+}
+
+.ai-tasks-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.ai-tasks-detail-body {
+  margin-top: 12px;
+}
+
+.ai-tasks-detail-body-pre {
+  white-space: pre-wrap;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
 }
 
 .ai-tasks-column {
@@ -273,6 +468,10 @@
 
 @media (max-width: 900px) {
   .ai-tasks-draft-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-tasks-board-split {
     grid-template-columns: 1fr;
   }
 }

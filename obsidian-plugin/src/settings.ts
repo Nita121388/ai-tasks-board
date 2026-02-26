@@ -13,11 +13,14 @@ export type AiModelConfig = {
   top_p?: number;
 };
 
+export type BoardLayout = "kanban" | "split";
+
 export type AiTasksBoardSettings = {
   boardPath: string;
   archiveFolderPath: string;
   runtimeUrl: string;
   tagPresets: string;
+  boardLayout: BoardLayout;
   runtimeCommand: string;
   runtimeArgs: string;
   runtimeCwd: string;
@@ -36,6 +39,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   archiveFolderPath: "Archive",
   runtimeUrl: "http://127.0.0.1:17890",
   tagPresets: "work\n学习\n效率\n运维\nopenclaw\nobsidian\npixel",
+  boardLayout: "split",
   runtimeCommand: "ai-tasks-runtime",
   runtimeArgs: "serve",
   runtimeCwd: "",
@@ -86,6 +90,20 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       .addToggle((toggle) => {
         toggle.setValue(Boolean(this.plugin.settings.renderBoardInNote)).onChange(async (value) => {
           this.plugin.settings.renderBoardInNote = value;
+          await this.plugin.saveSettings();
+          this.plugin.requestOverlayUpdate();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Board layout")
+      .setDesc("Default layout for the in-note board UI.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("split", "Split (list + detail)");
+        dropdown.addOption("kanban", "Kanban (columns)");
+        dropdown.setValue(this.plugin.settings.boardLayout || "split");
+        dropdown.onChange(async (value) => {
+          this.plugin.settings.boardLayout = value as BoardLayout;
           await this.plugin.saveSettings();
           this.plugin.requestOverlayUpdate();
         });

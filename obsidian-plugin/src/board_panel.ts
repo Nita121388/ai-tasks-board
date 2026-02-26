@@ -76,6 +76,7 @@ export class BoardPanel {
   private statusFilter: BoardStatus | "All" = "All";
   private tagFilter: Set<string> = new Set();
   private searchText: string = "";
+  private selectedUuid: string | null = null;
 
   constructor(plugin: AiTasksBoardPlugin, boardFile: TFile) {
     this.plugin = plugin;
@@ -111,6 +112,27 @@ export class BoardPanel {
     left.createDiv({ cls: "ai-tasks-board-title", text: "AI Tasks Board" });
 
     const controls = header.createDiv({ cls: "ai-tasks-board-controls" });
+
+    const layoutBox = controls.createDiv({ cls: "ai-tasks-board-layout" });
+    const splitBtn = layoutBox.createEl("button", { text: "Split", cls: "ai-tasks-layout-btn" });
+    const kanbanBtn = layoutBox.createEl("button", { text: "Kanban", cls: "ai-tasks-layout-btn" });
+    const layout = this.plugin.settings.boardLayout === "kanban" ? "kanban" : "split";
+    if (layout === "split") splitBtn.classList.add("is-active");
+    else kanbanBtn.classList.add("is-active");
+    splitBtn.addEventListener("click", () => {
+      void (async () => {
+        this.plugin.settings.boardLayout = "split";
+        await this.plugin.saveSettings();
+        await this.render(root);
+      })();
+    });
+    kanbanBtn.addEventListener("click", () => {
+      void (async () => {
+        this.plugin.settings.boardLayout = "kanban";
+        await this.plugin.saveSettings();
+        await this.render(root);
+      })();
+    });
 
     const importBtn = controls.createEl("button", { text: "Import", cls: "ai-tasks-board-import" });
     importBtn.addEventListener("click", () => {
@@ -162,6 +184,51 @@ export class BoardPanel {
       this.tagFilter.clear();
       await this.render(root);
     });
+  }
+
+  private extractBodyFromBlock(rawBlock: string): string {
+    const lines = rawBlock.replace(/\r\n/g, "\n").split("\n");
+
+    const beginRe = /^<!--\s*AI-TASKS:TASK\s+[0-9a-fA-F-]{8,}\s+BEGIN\s*-->\s*$/i;
+    const endRe = /^<!--\s*AI-TASKS:TASK\s+[0-9a-fA-F-]{8,}\s+END\s*-->\s*$/i;
+
+    let inBody = false;
+    const out: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (beginRe.test(trimmed)) continue;
+      if (endRe.test(trimmed)) break;
+
+      if (!inBody) {
+        if (trimmed === ">") {
+          inBody = true;
+        }
+        continue;
+      }
+
+      if (line.startsWith(">")) {
+        let t = line.slice(1);
+        if (t.startsWith(" ")) t = t.slice(1);
+        out.push(t);
+      } else {
+        out.push(line);
+      }
+    }
+
+    if (out.length === 0) {
+      // Fallback: strip common callout prefixes.
+      for (const line of lines) {
+        if (beginRe.test(line.trim()) || endRe.test(line.trim())) continue;
+        if (line.startsWith(">")) {
+          let t = line.slice(1);
+          if (t.startsWith(" ")) t = t.slice(1);
+          out.push(t);
+        }
+      }
+    }
+
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   private createCard(
@@ -252,6 +319,33 @@ export class BoardPanel {
     });
   }
 
+  private attachSplitDnD(
+    listEl: HTMLElement,
+    status: BoardStatus,
+    onMove: (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => Promise<void>
+  ): void {
+    listEl.addEventListener("dragover", (ev) => {
+      ev.preventDefault();
+      listEl.classList.add("is-drop-target");
+    });
+    listEl.addEventListener("dragleave", () => {
+      listEl.classList.remove("is-drop-target");
+    });
+    listEl.addEventListener("drop", async (ev) => {
+      ev.preventDefault();
+      listEl.classList.remove("is-drop-target");
+
+      const uuid = ev.dataTransfer?.getData("application/x-ai-task-uuid");
+      if (!uuid) return;
+
+      const target = ev.target as HTMLElement | null;
+      const beforeRow = target?.closest?.(".ai-tasks-split-task") as HTMLElement | null;
+      const beforeUuid = beforeRow?.getAttribute("data-uuid") ?? null;
+
+      await onMove(uuid, status, beforeUuid);
+    });
+  }
+
   private async appendToArchive(vault: Vault, archivePath: string, block: string, dateStr: string): Promise<void> {
     const parent = archivePath.split("/").slice(0, -1).join("/");
     if (parent) await ensureFolder(vault, parent);
@@ -293,8 +387,6 @@ export class BoardPanel {
     const allTasks = Array.from(parsed.sections.values()).flatMap((s) => s.tasks);
     const allTags = extractAllTags(allTasks);
     this.renderHeader(root, allTags);
-
-    const columns = root.createDiv({ cls: "ai-tasks-board-columns" });
 
     const onMove = async (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => {
       const current = await this.readBoardNormalized();
@@ -343,19 +435,127 @@ export class BoardPanel {
       }).open();
     };
 
+    const layout = this.plugin.settings.boardLayout === "kanban" ? "kanban" : "split";
+    if (layout === "kanban") {
+      const columns = root.createDiv({ cls: "ai-tasks-board-columns" });
+      for (const status of STATUSES) {
+        const col = columns.createDiv({ cls: "ai-tasks-column" });
+        const head = col.createDiv({ cls: "ai-tasks-column-head" });
+        head.createDiv({ cls: "ai-tasks-column-title", text: status });
+        const addBtn = head.createEl("button", { cls: "ai-tasks-column-add", text: "+ Add" });
+        addBtn.addEventListener("click", () => onCreate(status));
+
+        const list = col.createDiv({ cls: "ai-tasks-column-list" });
+        this.attachColumnDnD(list, status, onMove);
+
+        const section = parsed.sections.get(status);
+        const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
+        for (const t of tasks) this.createCard(list, t, onMove, onArchive, onEdit);
+      }
+      return;
+    }
+
+    // Split layout: left list (grouped by status) + right detail pane.
+    const split = root.createDiv({ cls: "ai-tasks-board-split" });
+    const leftPane = split.createDiv({ cls: "ai-tasks-board-split-left" });
+    const rightPane = split.createDiv({ cls: "ai-tasks-board-split-right" });
+
+    const taskByUuid = new Map<string, BoardTask>();
+    for (const t of allTasks) taskByUuid.set(t.uuid, t);
+
+    const visible: BoardTask[] = [];
     for (const status of STATUSES) {
-      const col = columns.createDiv({ cls: "ai-tasks-column" });
-      const head = col.createDiv({ cls: "ai-tasks-column-head" });
-      head.createDiv({ cls: "ai-tasks-column-title", text: status });
-      const addBtn = head.createEl("button", { cls: "ai-tasks-column-add", text: "+ Add" });
-      addBtn.addEventListener("click", () => onCreate(status));
+      const section = parsed.sections.get(status);
+      visible.push(...(section?.tasks ?? []).filter((t) => this.shouldShowTask(t)));
+    }
 
-      const list = col.createDiv({ cls: "ai-tasks-column-list" });
-      this.attachColumnDnD(list, status, onMove);
+    if (this.selectedUuid && !taskByUuid.has(this.selectedUuid)) {
+      this.selectedUuid = null;
+    }
+    if (this.selectedUuid && !visible.some((t) => t.uuid === this.selectedUuid)) {
+      this.selectedUuid = null;
+    }
+    if (!this.selectedUuid && visible.length > 0) {
+      this.selectedUuid = visible[0]?.uuid ?? null;
+    }
 
+    for (const status of STATUSES) {
       const section = parsed.sections.get(status);
       const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
-      for (const t of tasks) this.createCard(list, t, onMove, onArchive, onEdit);
+
+      const secEl = leftPane.createDiv({ cls: "ai-tasks-split-section" });
+      const secHead = secEl.createDiv({ cls: "ai-tasks-split-section-head" });
+      secHead.createDiv({ cls: "ai-tasks-split-section-title", text: status });
+      secHead.createDiv({ cls: "ai-tasks-split-section-count", text: String(tasks.length) });
+      const addBtn = secHead.createEl("button", { cls: "ai-tasks-split-add", text: "+ Add" });
+      addBtn.addEventListener("click", () => onCreate(status));
+
+      const list = secEl.createDiv({ cls: "ai-tasks-split-tasklist" });
+      this.attachSplitDnD(list, status, onMove);
+
+      for (const t of tasks) {
+        const row = list.createDiv({ cls: "ai-tasks-split-task", attr: { "data-uuid": t.uuid } });
+        if (t.uuid === this.selectedUuid) row.classList.add("is-selected");
+        row.draggable = true;
+
+        row.createDiv({ cls: "ai-tasks-split-task-title", text: t.title });
+        if (t.tags.length > 0) {
+          row.createDiv({ cls: "ai-tasks-split-task-tags", text: t.tags.join(", ") });
+        }
+
+        row.addEventListener("click", async (ev) => {
+          if ((ev.target as HTMLElement | null)?.closest?.("select, button, a, input, textarea")) return;
+          this.selectedUuid = t.uuid;
+          await this.render(root);
+        });
+
+        row.addEventListener("dragstart", (ev) => {
+          ev.dataTransfer?.setData("application/x-ai-task-uuid", t.uuid);
+          ev.dataTransfer?.setDragImage(row, 8, 8);
+          row.classList.add("is-dragging");
+        });
+        row.addEventListener("dragend", () => {
+          row.classList.remove("is-dragging");
+        });
+      }
     }
+
+    const selected = this.selectedUuid ? taskByUuid.get(this.selectedUuid) ?? null : null;
+    if (!selected) {
+      rightPane.createDiv({ cls: "ai-tasks-detail-empty", text: "Select a task to view details." });
+      return;
+    }
+
+    const detail = rightPane.createDiv({ cls: "ai-tasks-detail" });
+    detail.createDiv({ cls: "ai-tasks-detail-title", text: selected.title });
+    detail.createDiv({ cls: "ai-tasks-detail-uuid", text: selected.uuid });
+
+    const meta = detail.createDiv({ cls: "ai-tasks-detail-meta" });
+    const statusSelect = meta.createEl("select", { cls: "ai-tasks-detail-status" });
+    for (const s of STATUSES) statusSelect.add(new Option(s, s));
+    statusSelect.value = selected.status;
+    statusSelect.addEventListener("change", async () => {
+      await onMove(selected.uuid, statusSelect.value as BoardStatus, null);
+    });
+
+    const editBtn = meta.createEl("button", { text: "Edit", cls: "ai-tasks-detail-edit" });
+    editBtn.addEventListener("click", () => onEdit(selected));
+
+    if (selected.status === "Done") {
+      const archiveBtn = meta.createEl("button", { text: "Archive", cls: "ai-tasks-detail-archive" });
+      archiveBtn.addEventListener("click", async () => {
+        await onArchive(selected.uuid);
+      });
+    }
+
+    if (selected.tags.length > 0) {
+      const tags = detail.createDiv({ cls: "ai-tasks-detail-tags" });
+      for (const tag of selected.tags) tags.createSpan({ cls: "ai-task-tag", text: tag });
+    }
+
+    const body = detail.createDiv({ cls: "ai-tasks-detail-body" });
+    const bodyText = this.extractBodyFromBlock(selected.rawBlock);
+    const pre = body.createEl("pre", { cls: "ai-tasks-detail-body-pre" });
+    pre.textContent = bodyText || "(no details)";
   }
 }
