@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Node.js
+node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# AI Tasks Board (generated)
+agent/memory/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+agent/memory/heartbeat-state.json
+agent/history/
+
+# Env
+.env
+.env.*
+

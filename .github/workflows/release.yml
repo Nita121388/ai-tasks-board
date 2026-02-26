@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Recommended (standalone): plain semver tags.
+      - "v*"
+      # Back-compat with the former demo-lab namespaced tags.
+      - "ai-tasks-board-v*"
+      - "ai-tasks-board/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse version from tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=""
+          if [[ "$TAG" =~ ^ai-tasks-board[-/]v(.+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          elif [[ "$TAG" =~ ^v(.+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            echo "Unsupported tag: $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sync versions (manifest/pyproject)
+        run: python3 scripts/ai_tasks_board_bump_version.py "${{ steps.meta.outputs.version }}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: obsidian-plugin/package-lock.json
+
+      - name: Build Obsidian plugin
+        working-directory: obsidian-plugin
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build runtime (wheel/sdist)
+        working-directory: runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+
+          mkdir -p dist
+
+          # Obsidian plugin bundle.
+          zip -j "dist/ai-tasks-board-obsidian-plugin-${VERSION}.zip" \
+            "obsidian-plugin/main.js" \
+            "obsidian-plugin/manifest.json" \
+            "obsidian-plugin/styles.css" \
+            "obsidian-plugin/versions.json"
+
+          # Checksums for everything we upload.
+          : > dist/sha256sums.txt
+          sha256sum \
+            "obsidian-plugin/main.js" \
+            "obsidian-plugin/manifest.json" \
+            "obsidian-plugin/styles.css" \
+            "obsidian-plugin/versions.json" \
+            "dist/ai-tasks-board-obsidian-plugin-${VERSION}.zip" \
+            runtime/dist/* \
+            >> dist/sha256sums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AI Tasks Board v${{ steps.meta.outputs.version }}"
+          tag_name: "${{ steps.meta.outputs.tag }}"
+          generate_release_notes: true
+          files: |
+            obsidian-plugin/main.js
+            obsidian-plugin/manifest.json
+            obsidian-plugin/styles.css
+            obsidian-plugin/versions.json
+            dist/ai-tasks-board-obsidian-plugin-${{ steps.meta.outputs.version }}.zip
+            runtime/dist/*
+            dist/sha256sums.txt
+

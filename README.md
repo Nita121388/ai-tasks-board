@@ -6,7 +6,7 @@ This is the exploration workspace for "AI Tasks Board":
 - Local runtime (Agno + FastAPI): AI decisions + Codex CLI provider (`codex exec --json`) + proposal/diff generation.
 - Local CLI: start/manage the runtime + session collectors (Codex/Claude Code, etc.).
 
-Repo location policy (per Nita): this lives in `demo-lab` during exploration; later it can be split into a standalone repo.
+This repo is the standalone home for the project (previously incubated under `demo-lab`).
 
 ## Layout
 
@@ -18,7 +18,7 @@ Repo location policy (per Nita): this lives in `demo-lab` during exploration; la
 ### Runtime
 
 ```bash
-cd ai-tasks-board/runtime
+cd runtime
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -47,7 +47,7 @@ ai-tasks-runtime sessions watch /path/to/your/vault --no-link-board
 
 ### Agent workspace (OpenClaw-style files)
 
-The repo includes an `ai-tasks-board/agent/` folder with the expected Agent files:
+The repo includes an `agent/` folder with the expected Agent files:
 
 - `SOUL.md`, `USER.md`, `MEMORY.md`, `HEARTBEAT.md`, etc.
 
@@ -62,7 +62,7 @@ ai-tasks-runtime agent heartbeat
 ### Obsidian plugin
 
 ```bash
-cd ai-tasks-board/obsidian-plugin
+cd obsidian-plugin
 npm install
 npm run build
 ```
@@ -100,12 +100,13 @@ npm run build
 
 This repo includes GitHub Actions workflows:
 
-- CI: build plugin + import-check runtime on every PR / push to `master`
+- CI: build plugin + import-check runtime on every PR / push to `main`
 - Release: build + publish GitHub Release when you push a tag
 
-Recommended tag format (to avoid collisions inside `demo-lab`):
+Recommended tag format (standalone repo):
 
-- `ai-tasks-board-vX.Y.Z` (e.g. `ai-tasks-board-v0.1.0`)
+- `vX.Y.Z` (e.g. `v0.1.0`)
+- Back-compat: `ai-tasks-board-vX.Y.Z` / `ai-tasks-board/vX.Y.Z`
 
 Release workflow will:
 

@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _default_agent_dir() -> Path:
-    # Prefer the repo's `ai-tasks-board/agent/` workspace when running from source.
+    # Prefer the repo's `agent/` workspace when running from source.
     # Fallback to a local `./agent` folder when installed elsewhere.
     here = Path(__file__).resolve()
     candidate = here.parents[3] / "agent"
