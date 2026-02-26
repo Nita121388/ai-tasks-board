@@ -1,4 +1,4 @@
-# AI Tasks Board (Exploration)
+# AI Tasks Board
 
 This is the exploration workspace for "AI Tasks Board":
 
@@ -123,3 +123,11 @@ Local version bump helper:
 ```bash
 python3 scripts/ai_tasks_board_bump_version.py 0.1.0
 ```
+
+## Install (GitHub Release)
+
+Recommended: download the bundle zip for your platform/arch, then extract it into:
+
+`<your-vault>/.obsidian/plugins/ai-tasks-board/`
+
+The plugin will auto-start the local runtime by default (Settings -> Runtime Service). You can disable auto-start if you prefer manual control.

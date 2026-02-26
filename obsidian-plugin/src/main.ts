@@ -1,6 +1,7 @@
 import { Editor, MarkdownView, Menu, Notice, Plugin, TFile, getLanguage } from "obsidian";
 import { spawn, type ChildProcess } from "child_process";
-import { appendFileSync, mkdirSync } from "fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
 import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiModelConfig, type AiTasksBoardSettings } from "./settings";
 import { AiTasksDraftModal } from "./draft_modal";
@@ -33,6 +34,32 @@ function splitArgs(input: string): string[] {
   return out;
 }
 
+type ParsedRuntimeUrl = { host: string; port: number };
+
+function parseRuntimeUrl(raw: string): ParsedRuntimeUrl | null {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return null;
+  try {
+    const u = new URL(trimmed);
+    const host = u.hostname || "127.0.0.1";
+    const port = u.port ? Number(u.port) : 17890;
+    if (!Number.isFinite(port) || port <= 0) return null;
+    return { host, port };
+  } catch {
+    return null;
+  }
+}
+
+function hasCliFlag(args: string[], flag: string): boolean {
+  const lower = flag.toLowerCase();
+  for (let i = 0; i < args.length; i++) {
+    const a = (args[i] || "").toLowerCase();
+    if (a === lower) return true;
+    if (a.startsWith(lower + "=")) return true;
+  }
+  return false;
+}
+
 function buildDefaultBoardMarkdown(): string {
   return [
     "---",
@@ -63,6 +90,7 @@ export default class AiTasksBoardPlugin extends Plugin {
   private runtimeProcess: ChildProcess | null = null;
   private runtimePid: number | null = null;
   private boardOverlay: BoardNoteOverlayManager | null = null;
+  private autoStartPromise: Promise<void> | null = null;
 
   private getObsidianLanguageCode(): string {
     try {
@@ -85,6 +113,50 @@ export default class AiTasksBoardPlugin extends Plugin {
     const base = adapter?.getBasePath?.();
     if (!base) return null;
     return join(base, this.app.vault.configDir, "plugins", "ai-tasks-board");
+  }
+
+  private getDefaultAgentDir(): string | null {
+    try {
+      return join(homedir(), ".ai-tasks-board", "agent");
+    } catch {
+      return null;
+    }
+  }
+
+  private getBundledRuntimeCommand(): string | null {
+    const pluginDir = this.getPluginDir();
+    if (!pluginDir) return null;
+
+    // When installed via the "bundle" zip, runtime binaries live under:
+    //   .obsidian/plugins/ai-tasks-board/bin/<platform>-<arch>/ai-tasks-runtime[.exe]
+    // This keeps plugin-only installs working (no bin/ folder present).
+    const binName = process.platform === "win32" ? "ai-tasks-runtime.exe" : "ai-tasks-runtime";
+    const candidates = [
+      join(pluginDir, "bin", `${process.platform}-${process.arch}`, binName),
+      join(pluginDir, "bin", process.platform, process.arch, binName),
+      join(pluginDir, "bin", process.platform, binName),
+      join(pluginDir, "bin", binName),
+    ];
+
+    for (const c of candidates) {
+      if (existsSync(c)) return c;
+    }
+    return null;
+  }
+
+  private async autoStartRuntimeIfNeeded(): Promise<void> {
+    if (!this.settings.autoStartRuntime) return;
+    if (this.autoStartPromise) return;
+
+    this.autoStartPromise = (async () => {
+      const status = await this.fetchRuntimeStatus();
+      if (status?.ok) return;
+      await this.startRuntime();
+    })().finally(() => {
+      this.autoStartPromise = null;
+    });
+
+    await this.autoStartPromise;
   }
 
   async onload(): Promise<void> {
@@ -166,11 +238,29 @@ export default class AiTasksBoardPlugin extends Plugin {
     );
 
     this.addSettingTab(new AiTasksBoardSettingTab(this.app, this));
+
+    // Runtime auto-start: run in background after layout is ready.
+    // - Avoids port conflicts by probing runtimeUrl first.
+    // - Default enabled for "formal release" usability.
+    this.app.workspace.onLayoutReady(() => {
+      void this.autoStartRuntimeIfNeeded();
+    });
   }
 
   onunload(): void {
     this.boardOverlay?.dispose();
     this.boardOverlay = null;
+
+    // Best-effort cleanup: only kill the child process we started.
+    if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
+      try {
+        this.runtimeProcess.kill();
+      } catch {
+        // ignore
+      }
+    }
+    this.runtimeProcess = null;
+    this.runtimePid = null;
   }
 
   requestOverlayUpdate(): void {
@@ -226,25 +316,68 @@ export default class AiTasksBoardPlugin extends Plugin {
   }
 
   async startRuntime(): Promise<void> {
+    const online = await this.fetchRuntimeStatus();
+    if (online?.ok) {
+      new Notice(this.t("notice.runtime.already_online"));
+      return;
+    }
+
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
       new Notice(this.t("notice.runtime.already_running"));
       return;
     }
 
-    const cmd = this.settings.runtimeCommand.trim();
+    const bundledCmd = this.getBundledRuntimeCommand();
+    const isDefaultCmd = this.settings.runtimeCommand.trim() === DEFAULT_SETTINGS.runtimeCommand;
+    let cmd = this.settings.runtimeCommand.trim();
+    if ((!cmd || isDefaultCmd) && bundledCmd) {
+      cmd = bundledCmd;
+      // Zip extractions on Unix can lose exec bits depending on tooling.
+      if (process.platform !== "win32") {
+        try {
+          chmodSync(cmd, 0o755);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     if (!cmd) {
       new Notice(this.t("notice.runtime.command_empty"));
       return;
     }
 
     const args = splitArgs(this.settings.runtimeArgs || "");
-    const cwd = this.settings.runtimeCwd.trim() || undefined;
+    const urlInfo = parseRuntimeUrl(this.settings.runtimeUrl);
+
+    // Keep runtimeUrl and spawned runtime's host/port in sync by default.
+    if (args.length > 0 && args[0] === "serve" && urlInfo) {
+      if (!hasCliFlag(args, "--host")) {
+        args.push("--host", urlInfo.host);
+      }
+      if (!hasCliFlag(args, "--port")) {
+        args.push("--port", String(urlInfo.port));
+      }
+    }
+
+    const pluginDir = this.getPluginDir();
+    const cwd = this.settings.runtimeCwd.trim() || (cmd === bundledCmd ? pluginDir || undefined : undefined);
+    const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+    if (urlInfo) {
+      env.AI_TASKS_HOST = urlInfo.host;
+      env.AI_TASKS_PORT = String(urlInfo.port);
+    }
+    const agentDir = this.getDefaultAgentDir();
+    if (agentDir) {
+      env.AI_TASKS_AGENT_DIR = agentDir;
+    }
 
     try {
       const child = spawn(cmd, args, {
         cwd,
         windowsHide: true,
         shell: false,
+        env,
       });
       this.runtimeProcess = child;
       this.runtimePid = child.pid ?? null;

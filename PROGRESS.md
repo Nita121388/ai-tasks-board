@@ -23,3 +23,7 @@
 - Obsidian plugin: added Settings-tab diagnostics entry points (`Test AI` + `Test Agent`) that run safe, no-write runtime calls and show copyable JSON results.
 - Obsidian plugin: added i18n (zh-CN/en + Auto) and migrated main UI strings to translations.
 - Obsidian plugin: added unit tests (vitest) and wired them into GitHub Actions CI.
+- Formal release prep:
+  - Plugin: added a default-on "auto-start runtime" setting and bundled-runtime auto-detection (prefers `bin/<platform>-<arch>/ai-tasks-runtime` when present).
+  - Runtime: default agent workspace moved to `~/.ai-tasks-board/agent` (still prefers repo `agent/` in dev); added `runtime/pyinstaller_entrypoint.py` for PyInstaller builds.
+  - Release workflow: build runtime binaries (linux/win/mac x64+arm64) and publish per-platform bundle zips (plugin + runtime).

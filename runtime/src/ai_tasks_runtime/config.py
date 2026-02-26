@@ -14,7 +14,9 @@ def _default_agent_dir() -> Path:
     candidate = here.parents[3] / "agent"
     if candidate.exists():
         return candidate
-    return Path.cwd() / "agent"
+    # For end users, keep the agent workspace in a stable location outside the vault/plugin folder.
+    # The Obsidian plugin also sets AI_TASKS_AGENT_DIR to this path by default.
+    return Path.home() / ".ai-tasks-board" / "agent"
 
 
 class Settings(BaseSettings):

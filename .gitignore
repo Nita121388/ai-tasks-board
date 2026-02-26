@@ -29,3 +29,5 @@ agent/history/
 .env
 .env.*
 
+# PyInstaller
+*.spec

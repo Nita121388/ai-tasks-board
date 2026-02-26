@@ -20,6 +20,7 @@ export type AiTasksBoardSettings = {
   boardPath: string;
   archiveFolderPath: string;
   runtimeUrl: string;
+  autoStartRuntime: boolean;
   tagPresets: string;
   boardLayout: BoardLayout;
   uiLanguage: UiLanguageSetting;
@@ -40,6 +41,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   boardPath: "Tasks/Boards/Board.md",
   archiveFolderPath: "Archive",
   runtimeUrl: "http://127.0.0.1:17890",
+  autoStartRuntime: true,
   tagPresets: "work\n学习\n效率\n运维\nopenclaw\nobsidian\npixel",
   boardLayout: "split",
   uiLanguage: "auto",
@@ -166,6 +168,16 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
             this.plugin.settings.runtimeUrl = value.trim();
             await this.plugin.saveSettings();
           });
+      });
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.runtime_auto_start.name"))
+      .setDesc(this.plugin.t("settings.runtime_auto_start.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(Boolean(this.plugin.settings.autoStartRuntime)).onChange(async (value) => {
+          this.plugin.settings.autoStartRuntime = value;
+          await this.plugin.saveSettings();
+        });
       });
 
     containerEl.createEl("h3", { text: this.plugin.t("settings.runtime_service.heading") });

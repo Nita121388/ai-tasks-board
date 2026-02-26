@@ -48,6 +48,7 @@ const STRINGS = {
 
   // Notices / status
   "notice.runtime.already_running": { en: "AI Tasks: runtime already running.", zh: "AI Tasks：运行时已在运行。" },
+  "notice.runtime.already_online": { en: "AI Tasks: runtime already online.", zh: "AI Tasks：运行时已在线。" },
   "notice.runtime.command_empty": { en: "AI Tasks: runtime command is empty.", zh: "AI Tasks：运行时启动命令为空。" },
   "notice.runtime.start_failed": { en: "AI Tasks: runtime start failed: {{error}}", zh: "AI Tasks：运行时启动失败：{{error}}" },
   "notice.runtime.starting": { en: "AI Tasks: runtime starting.", zh: "AI Tasks：正在启动运行时。" },
@@ -79,6 +80,11 @@ const STRINGS = {
   "settings.tag_presets.desc": { en: "One tag per line. AI will prefer these tags when proposing/importing tasks.", zh: "每行一个标签。AI 生成/导入任务时会优先使用这些标签。" },
   "settings.runtime_url.name": { en: "Runtime URL", zh: "运行时 URL" },
   "settings.runtime_url.desc": { en: "Local runtime base URL (Agno + FastAPI).", zh: "本地运行时基地址（Agno + FastAPI）。" },
+  "settings.runtime_auto_start.name": { en: "Auto-start runtime", zh: "自动启动运行时" },
+  "settings.runtime_auto_start.desc": {
+    en: "Start the local runtime automatically when Obsidian starts.",
+    zh: "打开 Obsidian 时自动启动本地运行时。",
+  },
 
   "settings.ui_language.name": { en: "UI language", zh: "界面语言" },
   "settings.ui_language.desc": { en: "Auto follows Obsidian language. You can also override it.", zh: "自动跟随 Obsidian 语言；也可以手动覆盖。" },
