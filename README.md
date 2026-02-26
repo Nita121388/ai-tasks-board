@@ -95,3 +95,30 @@ npm run build
 - The canonical requirements/design docs live in the Obsidian vault:
   - `My Projects/AI Tasks/PRD.md`
   - `My Projects/AI Tasks/技术方案.md`
+
+## CI / Release
+
+This repo includes GitHub Actions workflows:
+
+- CI: build plugin + import-check runtime on every PR / push to `master`
+- Release: build + publish GitHub Release when you push a tag
+
+Recommended tag format (to avoid collisions inside `demo-lab`):
+
+- `ai-tasks-board-vX.Y.Z` (e.g. `ai-tasks-board-v0.1.0`)
+
+Release workflow will:
+
+- Sync versions to the tag (plugin manifest + runtime pyproject)
+- Build plugin + runtime
+- Upload release assets:
+  - Obsidian plugin files (`main.js`, `manifest.json`, `styles.css`, `versions.json`)
+  - Plugin zip bundle
+  - Runtime wheel/sdist
+  - `sha256sums.txt`
+
+Local version bump helper:
+
+```bash
+python3 scripts/ai_tasks_board_bump_version.py 0.1.0
+```
