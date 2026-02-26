@@ -6,14 +6,16 @@
   "type": "module",
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run"
   },
   "license": "0-BSD",
   "devDependencies": {
     "@types/node": "^20.11.30",
     "esbuild": "0.25.5",
     "tslib": "2.4.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "obsidian": "latest"

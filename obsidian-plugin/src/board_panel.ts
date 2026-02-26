@@ -88,7 +88,7 @@ export class BoardPanel {
     const norm = normalizeEscapedNewlines(raw);
     if (norm.changed) {
       await writeWithHistory(this.plugin.app.vault, this.boardFile, norm.next);
-      new Notice("AI Tasks: fixed escaped newlines in Board.md.");
+      new Notice(this.plugin.t("board.notice.fixed_escaped_newlines"));
       await appendAiTasksLog(this.plugin, { type: "board.normalize_escaped_newlines" });
     }
     return norm.next;
@@ -109,14 +109,14 @@ export class BoardPanel {
     const header = root.createDiv({ cls: "ai-tasks-board-header" });
 
     const left = header.createDiv({ cls: "ai-tasks-board-header-left" });
-    left.createDiv({ cls: "ai-tasks-board-title", text: "AI Tasks Board" });
+    left.createDiv({ cls: "ai-tasks-board-title", text: this.plugin.t("board.title") });
 
     const controls = header.createDiv({ cls: "ai-tasks-board-controls" });
 
     const viewSelect = controls.createEl("select", { cls: "ai-tasks-board-view-select" });
-    viewSelect.add(new Option("Kanban", "kanban"));
-    viewSelect.add(new Option("Kan Detail", "split"));
-    viewSelect.add(new Option("MD", "md"));
+    viewSelect.add(new Option(this.plugin.t("board.view.kanban"), "kanban"));
+    viewSelect.add(new Option(this.plugin.t("board.view.split"), "split"));
+    viewSelect.add(new Option(this.plugin.t("board.view.md"), "md"));
     viewSelect.value = viewMode;
     viewSelect.addEventListener("change", () => {
       void (async () => {
@@ -127,7 +127,7 @@ export class BoardPanel {
       })();
     });
 
-    const importBtn = controls.createEl("button", { text: "Import", cls: "ai-tasks-board-import" });
+    const importBtn = controls.createEl("button", { text: this.plugin.t("btn.import"), cls: "ai-tasks-board-import" });
     importBtn.addEventListener("click", () => {
       new AiTasksBulkImportModal(this.plugin, { selection: "", sourcePath: this.boardFile.path }).open();
     });
@@ -137,7 +137,7 @@ export class BoardPanel {
     const search = controls.createEl("input", {
       type: "search",
       cls: "ai-tasks-board-search",
-      attr: { placeholder: "Search title/tags..." },
+      attr: { placeholder: this.plugin.t("board.search.placeholder") },
     });
     search.value = this.searchText;
     search.addEventListener("input", async () => {
@@ -147,7 +147,7 @@ export class BoardPanel {
 
     // Status filter
     const statusSelect = controls.createEl("select", { cls: "ai-tasks-board-select" });
-    statusSelect.add(new Option("All statuses", "All"));
+    statusSelect.add(new Option(this.plugin.t("board.status_filter.all"), "All"));
     for (const s of STATUSES) statusSelect.add(new Option(s, s));
     statusSelect.value = this.statusFilter;
     statusSelect.addEventListener("change", async () => {
@@ -158,10 +158,10 @@ export class BoardPanel {
 
     // Tags filter (chips)
     const tagBox = controls.createDiv({ cls: "ai-tasks-board-tags" });
-    const tagTitle = tagBox.createDiv({ cls: "ai-tasks-board-tags-title", text: "Tags" });
+    const tagTitle = tagBox.createDiv({ cls: "ai-tasks-board-tags-title", text: this.plugin.t("board.tags.title") });
     const tagList = tagBox.createDiv({ cls: "ai-tasks-board-tags-list" });
     if (allTags.length === 0) {
-      tagList.createDiv({ cls: "ai-tasks-board-tags-empty", text: "(none)" });
+      tagList.createDiv({ cls: "ai-tasks-board-tags-empty", text: this.plugin.t("board.tags.empty") });
     } else {
       for (const tag of allTags) {
         const chip = tagList.createEl("button", { cls: "ai-tasks-tag-chip", text: tag });
@@ -256,14 +256,14 @@ export class BoardPanel {
       await onMove(task.uuid, statusSelect.value as BoardStatus, null);
     });
 
-    const editBtn = actions.createEl("button", { cls: "ai-task-edit", text: "Edit" });
+    const editBtn = actions.createEl("button", { cls: "ai-task-edit", text: this.plugin.t("btn.edit") });
     editBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       onEdit(task);
     });
 
     if (task.status === "Done") {
-      const archiveBtn = actions.createEl("button", { text: "Archive", cls: "ai-task-archive" });
+      const archiveBtn = actions.createEl("button", { text: this.plugin.t("btn.archive"), cls: "ai-task-archive" });
       archiveBtn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         await onArchive(task.uuid);
@@ -371,7 +371,7 @@ export class BoardPanel {
       content = await this.readBoardNormalized();
     } catch (e) {
       const err = root.createDiv({ cls: "ai-tasks-board-error" });
-      err.createDiv({ text: e instanceof Error ? e.message : "Failed to read Board.md." });
+      err.createDiv({ text: e instanceof Error ? e.message : this.plugin.t("board.md.read_failed") });
       return;
     }
 
@@ -380,8 +380,8 @@ export class BoardPanel {
 
       const box = root.createDiv({ cls: "ai-tasks-md-root" });
       const actions = box.createDiv({ cls: "ai-tasks-md-actions" });
-      const reloadBtn = actions.createEl("button", { text: "Reload" });
-      const saveBtn = actions.createEl("button", { text: "Save", cls: "mod-cta" });
+      const reloadBtn = actions.createEl("button", { text: this.plugin.t("btn.reload") });
+      const saveBtn = actions.createEl("button", { text: this.plugin.t("btn.save"), cls: "mod-cta" });
 
       const textarea = box.createEl("textarea", { cls: "ai-tasks-md-textarea" });
       textarea.value = content;
@@ -391,7 +391,7 @@ export class BoardPanel {
         void (async () => {
           await writeWithHistory(this.plugin.app.vault, this.boardFile, textarea.value.replace(/\r\n/g, "\n"));
           await appendAiTasksLog(this.plugin, { type: "board.write", via: "md_view" });
-          new Notice("AI Tasks: saved Board.md (history snapshot created).");
+          new Notice(this.plugin.t("board.md.saved_notice"));
           await this.render(root);
         })();
       });
@@ -405,8 +405,8 @@ export class BoardPanel {
       // Still render the header so user can switch to MD view to fix formatting.
       this.renderHeader(root, [], viewMode);
       const err = root.createDiv({ cls: "ai-tasks-board-error" });
-      err.createDiv({ text: e instanceof Error ? e.message : "Failed to parse Board.md (unknown error)." });
-      err.createDiv({ text: "Tip: switch view to MD to edit/fix the file." });
+      err.createDiv({ text: e instanceof Error ? e.message : this.plugin.t("board.md.parse_failed") });
+      err.createDiv({ text: this.plugin.t("board.md.tip_switch_md") });
       return;
     }
 
@@ -423,7 +423,7 @@ export class BoardPanel {
     };
 
     const onArchive = async (uuid: string) => {
-      if (!window.confirm("Archive this task?")) return;
+      if (!window.confirm(this.plugin.t("board.confirm.archive"))) return;
       const current = await this.readBoardNormalized();
       const { removed, next } = removeTaskBlock(current, uuid);
 
@@ -435,7 +435,7 @@ export class BoardPanel {
       await this.appendToArchive(this.plugin.app.vault, archivePath, archivedBlock, dateStr);
       await writeWithHistory(this.plugin.app.vault, this.boardFile, next);
 
-      new Notice(`Archived task to ${archivePath}`);
+      new Notice(this.plugin.t("board.notice.archived_to", { path: archivePath }));
       await appendAiTasksLog(this.plugin, { type: "task.archive", uuid, archive_path: archivePath });
       await this.render(root);
     };
@@ -467,7 +467,7 @@ export class BoardPanel {
         const col = columns.createDiv({ cls: "ai-tasks-column" });
         const head = col.createDiv({ cls: "ai-tasks-column-head" });
         head.createDiv({ cls: "ai-tasks-column-title", text: status });
-        const addBtn = head.createEl("button", { cls: "ai-tasks-column-add", text: "+ Add" });
+        const addBtn = head.createEl("button", { cls: "ai-tasks-column-add", text: this.plugin.t("board.btn.add") });
         addBtn.addEventListener("click", () => onCreate(status));
 
         const list = col.createDiv({ cls: "ai-tasks-column-list" });
@@ -512,7 +512,7 @@ export class BoardPanel {
       const secHead = secEl.createDiv({ cls: "ai-tasks-split-section-head" });
       secHead.createDiv({ cls: "ai-tasks-split-section-title", text: status });
       secHead.createDiv({ cls: "ai-tasks-split-section-count", text: String(tasks.length) });
-      const addBtn = secHead.createEl("button", { cls: "ai-tasks-split-add", text: "+ Add" });
+      const addBtn = secHead.createEl("button", { cls: "ai-tasks-split-add", text: this.plugin.t("board.btn.add") });
       addBtn.addEventListener("click", () => onCreate(status));
 
       const list = secEl.createDiv({ cls: "ai-tasks-split-tasklist" });
@@ -547,7 +547,7 @@ export class BoardPanel {
 
     const selected = this.selectedUuid ? taskByUuid.get(this.selectedUuid) ?? null : null;
     if (!selected) {
-      rightPane.createDiv({ cls: "ai-tasks-detail-empty", text: "Select a task to view details." });
+      rightPane.createDiv({ cls: "ai-tasks-detail-empty", text: this.plugin.t("board.task.select_to_view") });
       return;
     }
 
@@ -563,11 +563,11 @@ export class BoardPanel {
       await onMove(selected.uuid, statusSelect.value as BoardStatus, null);
     });
 
-    const editBtn = meta.createEl("button", { text: "Edit", cls: "ai-tasks-detail-edit" });
+    const editBtn = meta.createEl("button", { text: this.plugin.t("btn.edit"), cls: "ai-tasks-detail-edit" });
     editBtn.addEventListener("click", () => onEdit(selected));
 
     if (selected.status === "Done") {
-      const archiveBtn = meta.createEl("button", { text: "Archive", cls: "ai-tasks-detail-archive" });
+      const archiveBtn = meta.createEl("button", { text: this.plugin.t("btn.archive"), cls: "ai-tasks-detail-archive" });
       archiveBtn.addEventListener("click", async () => {
         await onArchive(selected.uuid);
       });
@@ -581,6 +581,6 @@ export class BoardPanel {
     const body = detail.createDiv({ cls: "ai-tasks-detail-body" });
     const bodyText = this.extractBodyFromBlock(selected.rawBlock);
     const pre = body.createEl("pre", { cls: "ai-tasks-detail-body-pre" });
-    pre.textContent = bodyText || "(no details)";
+    pre.textContent = bodyText || this.plugin.t("board.task.no_details");
   }
 }

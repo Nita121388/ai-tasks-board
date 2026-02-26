@@ -20,3 +20,6 @@
 - Obsidian plugin: fixed the escaped-newline bug (literal `\\n` in Board.md) and added auto-migration + history snapshot when detected.
 - Obsidian plugin: added vault-side JSONL logs for AI calls and board writes; UI shows `engine=ai|heuristic` + confidence/reasoning when available.
 - Obsidian plugin: added bulk import (AI split) + tag presets to convert a messy list into multiple tagged tasks with correct titles.
+- Obsidian plugin: added Settings-tab diagnostics entry points (`Test AI` + `Test Agent`) that run safe, no-write runtime calls and show copyable JSON results.
+- Obsidian plugin: added i18n (zh-CN/en + Auto) and migrated main UI strings to translations.
+- Obsidian plugin: added unit tests (vitest) and wired them into GitHub Actions CI.

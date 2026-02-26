@@ -241,10 +241,12 @@ export class AiTasksDraftModal extends Modal {
     contentEl.empty();
     contentEl.addClass("ai-tasks-draft-modal");
 
-    contentEl.createEl("h2", { text: this.mode === "create" ? "AI Tasks: Add to board" : "AI Tasks: Update board" });
+    contentEl.createEl("h2", {
+      text: this.mode === "create" ? this.plugin.t("draft_modal.title.add") : this.plugin.t("draft_modal.title.update"),
+    });
 
     const draftBox = contentEl.createDiv({ cls: "ai-tasks-draft-box" });
-    draftBox.createDiv({ cls: "ai-tasks-draft-label", text: "Draft (editable)" });
+    draftBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("draft_modal.label.draft") });
     const draftInput = draftBox.createEl("textarea", { cls: "ai-tasks-draft-textarea" });
     draftInput.value = this.draft;
     draftInput.addEventListener("input", () => {
@@ -252,28 +254,28 @@ export class AiTasksDraftModal extends Modal {
     });
 
     const instrBox = contentEl.createDiv({ cls: "ai-tasks-instr-box" });
-    instrBox.createDiv({ cls: "ai-tasks-draft-label", text: "Extra instruction (optional)" });
+    instrBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("draft_modal.label.instruction") });
     const instrInput = instrBox.createEl("textarea", { cls: "ai-tasks-draft-textarea" });
-    instrInput.placeholder = "e.g. set status=Todo, add tag=release, update existing task if it matches...";
+    instrInput.placeholder = this.plugin.t("draft_modal.placeholder.instruction");
     instrInput.addEventListener("input", () => {
       this.instruction = instrInput.value;
     });
 
     const btnRow = contentEl.createDiv({ cls: "ai-tasks-draft-buttons" });
-    const genBtn = btnRow.createEl("button", { text: "Generate preview" });
-    const applyBtn = btnRow.createEl("button", { text: "Confirm & write" });
-    const cancelBtn = btnRow.createEl("button", { text: "Cancel" });
+    const genBtn = btnRow.createEl("button", { text: this.plugin.t("draft_modal.btn.generate_preview") });
+    const applyBtn = btnRow.createEl("button", { text: this.plugin.t("draft_modal.btn.confirm_write") });
+    const cancelBtn = btnRow.createEl("button", { text: this.plugin.t("btn.cancel") });
 
     this.statusEl = contentEl.createDiv({ cls: "ai-tasks-draft-status", text: "" });
 
     const preview = contentEl.createDiv({ cls: "ai-tasks-draft-preview" });
     const beforeBox = preview.createDiv({ cls: "ai-tasks-draft-side" });
-    beforeBox.createDiv({ cls: "ai-tasks-draft-label", text: "Before" });
+    beforeBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("draft_modal.label.before") });
     this.beforeEl = beforeBox.createEl("textarea", { cls: "ai-tasks-draft-preview-textarea" });
     this.beforeEl.readOnly = true;
 
     const afterBox = preview.createDiv({ cls: "ai-tasks-draft-side" });
-    afterBox.createDiv({ cls: "ai-tasks-draft-label", text: "After" });
+    afterBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("draft_modal.label.after") });
     this.afterEl = afterBox.createEl("textarea", { cls: "ai-tasks-draft-preview-textarea" });
     this.afterEl.readOnly = true;
 
@@ -299,7 +301,7 @@ export class AiTasksDraftModal extends Modal {
 
   private async generate(): Promise<void> {
     try {
-      this.setStatus("Generating preview...");
+      this.setStatus(this.plugin.t("draft_modal.status.generating"));
 
       this.boardFile = await getOrCreateBoardFile(this.plugin);
       const raw = await this.plugin.app.vault.read(this.boardFile);
@@ -428,25 +430,25 @@ export class AiTasksDraftModal extends Modal {
       if (this.proposal.ai_fallback) meta.push(`ai_fallback=${this.proposal.ai_fallback}`);
       if (this.proposal.reasoning) meta.push(this.proposal.reasoning);
       if (this.proposal.confidence != null) meta.push(`confidence=${this.proposal.confidence.toFixed(2)}`);
-      this.setStatus(meta.length ? meta.join(" | ") : "Preview ready.");
+      this.setStatus(meta.length ? meta.join(" | ") : this.plugin.t("draft_modal.status.preview_ready"));
     } catch (e) {
       const msg = formatError(e);
       logError("生成预览失败", e, {
         boardPath: this.plugin.settings.boardPath,
         mode: this.mode,
       });
-      this.setStatus(`Failed: ${msg}`);
-      new Notice(`AI Tasks: 预览失败：${msg}（详见控制台）`);
+      this.setStatus(this.plugin.t("draft_modal.status.failed", { error: msg }));
+      new Notice(this.plugin.t("draft_modal.notice.preview_failed", { error: msg }));
     }
   }
 
   private async apply(): Promise<void> {
     if (!this.boardFile) {
-      new Notice("AI Tasks: board file not ready.");
+      new Notice(this.plugin.t("draft_modal.notice.board_not_ready"));
       return;
     }
     if (!this.nextBoardContent) {
-      new Notice("AI Tasks: please generate preview first.");
+      new Notice(this.plugin.t("draft_modal.notice.generate_first"));
       return;
     }
 
@@ -458,14 +460,14 @@ export class AiTasksDraftModal extends Modal {
         action: this.proposal?.action ?? null,
         target_uuid: this.proposal?.target_uuid ?? null,
       });
-      new Notice("AI Tasks: wrote board update (history snapshot created).");
+      new Notice(this.plugin.t("draft_modal.notice.wrote_update"));
       this.close();
     } catch (e) {
       const msg = formatError(e);
       logError("写入看板失败", e, {
         boardPath: this.boardFile?.path ?? this.plugin.settings.boardPath,
       });
-      new Notice(`AI Tasks: 写入失败：${msg}（详见控制台）`);
+      new Notice(this.plugin.t("draft_modal.notice.write_failed", { error: msg }));
     }
   }
 }

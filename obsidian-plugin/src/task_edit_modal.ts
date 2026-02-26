@@ -187,33 +187,33 @@ export class AiTasksEditTaskModal extends Modal {
     contentEl.addClass("ai-tasks-edit-modal");
 
     const isEdit = !!this.task;
-    contentEl.createEl("h2", { text: isEdit ? "Edit task" : "New task" });
+    contentEl.createEl("h2", { text: isEdit ? this.plugin.t("task_modal.title.edit") : this.plugin.t("task_modal.title.new") });
 
     const titleRow = contentEl.createDiv({ cls: "ai-tasks-form-row" });
-    titleRow.createDiv({ cls: "ai-tasks-form-label", text: "Title" });
+    titleRow.createDiv({ cls: "ai-tasks-form-label", text: this.plugin.t("task_modal.label.title") });
     const titleInput = titleRow.createEl("input", { type: "text", cls: "ai-tasks-form-input" });
     titleInput.value = this.task?.title ?? "";
 
     const statusRow = contentEl.createDiv({ cls: "ai-tasks-form-row" });
-    statusRow.createDiv({ cls: "ai-tasks-form-label", text: "Status" });
+    statusRow.createDiv({ cls: "ai-tasks-form-label", text: this.plugin.t("task_modal.label.status") });
     const statusSelect = statusRow.createEl("select", { cls: "ai-tasks-form-select" });
     for (const s of STATUSES) statusSelect.add(new Option(s, s));
     statusSelect.value = this.task?.status ?? this.defaultStatus;
 
     const tagsRow = contentEl.createDiv({ cls: "ai-tasks-form-row" });
-    tagsRow.createDiv({ cls: "ai-tasks-form-label", text: "Tags (comma separated)" });
+    tagsRow.createDiv({ cls: "ai-tasks-form-label", text: this.plugin.t("task_modal.label.tags") });
     const tagsInput = tagsRow.createEl("input", { type: "text", cls: "ai-tasks-form-input" });
-    tagsInput.placeholder = "e.g. release, bug, v1";
+    tagsInput.placeholder = this.plugin.t("task_modal.placeholder.tags");
     tagsInput.value = (this.task?.tags ?? []).join(", ");
 
     const bodyRow = contentEl.createDiv({ cls: "ai-tasks-form-row" });
-    bodyRow.createDiv({ cls: "ai-tasks-form-label", text: "Body" });
+    bodyRow.createDiv({ cls: "ai-tasks-form-label", text: this.plugin.t("task_modal.label.body") });
     const bodyInput = bodyRow.createEl("textarea", { cls: "ai-tasks-form-textarea" });
     bodyInput.value = this.task ? parseBodyFromBlock(this.task.rawBlock) : "";
 
     const btns = contentEl.createDiv({ cls: "ai-tasks-form-buttons" });
-    const saveBtn = btns.createEl("button", { text: "Save", cls: "mod-cta" });
-    const cancelBtn = btns.createEl("button", { text: "Cancel" });
+    const saveBtn = btns.createEl("button", { text: this.plugin.t("btn.save"), cls: "mod-cta" });
+    const cancelBtn = btns.createEl("button", { text: this.plugin.t("btn.cancel") });
 
     cancelBtn.addEventListener("click", () => this.close());
     saveBtn.addEventListener("click", () => {
@@ -299,13 +299,12 @@ export class AiTasksEditTaskModal extends Modal {
         });
       }
 
-      new Notice("AI Tasks: saved.");
+      new Notice(this.plugin.t("task_modal.notice.saved"));
       this.close();
       this.onDidWrite();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new Notice(`AI Tasks: save failed: ${msg}`);
+      new Notice(this.plugin.t("task_modal.notice.save_failed", { error: msg }));
     }
   }
 }
-

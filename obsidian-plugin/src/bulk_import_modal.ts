@@ -179,29 +179,29 @@ export class AiTasksBulkImportModal extends Modal {
     contentEl.empty();
     contentEl.addClass("ai-tasks-bulk-import-modal");
 
-    contentEl.createEl("h2", { text: "AI Tasks: Import tasks" });
+    contentEl.createEl("h2", { text: this.plugin.t("bulk_modal.title") });
 
     const draftBox = contentEl.createDiv({ cls: "ai-tasks-draft-box" });
-    draftBox.createDiv({ cls: "ai-tasks-draft-label", text: "Text to split into tasks (editable)" });
+    draftBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("bulk_modal.label.text") });
     const draftInput = draftBox.createEl("textarea", { cls: "ai-tasks-draft-textarea" });
-    draftInput.placeholder = "Paste a task list here...";
+    draftInput.placeholder = this.plugin.t("bulk_modal.placeholder.text");
     draftInput.value = this.text;
     draftInput.addEventListener("input", () => {
       this.text = draftInput.value;
     });
 
     const instrBox = contentEl.createDiv({ cls: "ai-tasks-instr-box" });
-    instrBox.createDiv({ cls: "ai-tasks-draft-label", text: "Extra instruction (optional)" });
+    instrBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("bulk_modal.label.instruction") });
     const instrInput = instrBox.createEl("textarea", { cls: "ai-tasks-draft-textarea" });
-    instrInput.placeholder = "e.g. Use tags from presets; keep titles short; group by category...";
+    instrInput.placeholder = this.plugin.t("bulk_modal.placeholder.instruction");
     instrInput.value = this.instruction;
     instrInput.addEventListener("input", () => {
       this.instruction = instrInput.value;
     });
 
     const btnRow = contentEl.createDiv({ cls: "ai-tasks-draft-buttons" });
-    const genBtn = btnRow.createEl("button", { text: "Generate", cls: "mod-cta" });
-    const applyBtn = btnRow.createEl("button", { text: "Import to board" });
+    const genBtn = btnRow.createEl("button", { text: this.plugin.t("btn.generate"), cls: "mod-cta" });
+    const applyBtn = btnRow.createEl("button", { text: this.plugin.t("bulk_modal.btn.import_to_board") });
 
     this.statusEl = contentEl.createDiv({ cls: "ai-tasks-draft-status", text: "" });
     this.listEl = contentEl.createDiv({ cls: "ai-tasks-bulk-list" });
@@ -219,7 +219,7 @@ export class AiTasksBulkImportModal extends Modal {
     this.listEl.empty();
 
     if (!this.tasks.length) {
-      this.listEl.createDiv({ cls: "ai-tasks-board-empty", text: "(no tasks yet)" });
+      this.listEl.createDiv({ cls: "ai-tasks-board-empty", text: this.plugin.t("bulk_modal.empty") });
       return;
     }
 
@@ -236,7 +236,7 @@ export class AiTasksBulkImportModal extends Modal {
 
   private async generate(): Promise<void> {
     try {
-      this.setStatus("Generating...");
+      this.setStatus(this.plugin.t("bulk_modal.status.generating"));
 
       this.boardFile = await getOrCreateBoardFile(this.plugin);
 
@@ -287,21 +287,21 @@ export class AiTasksBulkImportModal extends Modal {
       if (resp.ai_fallback) meta.push(`ai_fallback=${resp.ai_fallback}`);
       if (resp.confidence != null) meta.push(`confidence=${resp.confidence.toFixed(2)}`);
       if (resp.reasoning) meta.push(resp.reasoning);
-      this.setStatus(meta.length ? meta.join(" | ") : `Ready (${this.tasks.length} tasks).`);
+      this.setStatus(meta.length ? meta.join(" | ") : this.plugin.t("bulk_modal.status.ready", { count: this.tasks.length }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.setStatus(`Failed: ${msg}`);
-      new Notice(`AI Tasks: ${msg}`);
+      this.setStatus(this.plugin.t("bulk_modal.status.failed", { error: msg }));
+      new Notice(this.plugin.t("bulk_modal.notice.generate_failed", { error: msg }));
     }
   }
 
   private async apply(): Promise<void> {
     if (!this.boardFile) {
-      new Notice("AI Tasks: board file not ready.");
+      new Notice(this.plugin.t("bulk_modal.notice.board_not_ready"));
       return;
     }
     if (!this.tasks.length) {
-      new Notice("AI Tasks: please generate tasks first.");
+      new Notice(this.plugin.t("bulk_modal.notice.generate_first"));
       return;
     }
 
@@ -345,12 +345,11 @@ export class AiTasksBulkImportModal extends Modal {
         thread_id: this.proposalMeta?.thread_id ?? null,
       });
 
-      new Notice(`AI Tasks: imported ${created.length} tasks (history snapshot created).`);
+      new Notice(this.plugin.t("bulk_modal.notice.imported", { count: created.length }));
       this.close();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new Notice(`AI Tasks: import failed: ${msg}`);
+      new Notice(this.plugin.t("bulk_modal.notice.import_failed", { error: msg }));
     }
   }
 }
-

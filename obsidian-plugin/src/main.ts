@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Menu, Notice, Plugin, TFile } from "obsidian";
+import { Editor, MarkdownView, Menu, Notice, Plugin, TFile, getLanguage } from "obsidian";
 import { spawn, type ChildProcess } from "child_process";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
@@ -7,6 +7,8 @@ import { AiTasksDraftModal } from "./draft_modal";
 import { AiTasksBulkImportModal } from "./bulk_import_modal";
 import { ensureFolder } from "./board_fs";
 import { BoardNoteOverlayManager } from "./board_note_overlay";
+import { AiTasksDiagnosticsModal, type DiagnosticsResult } from "./diagnostics_modal";
+import { resolveLanguage, t as translate, type I18nKey, type ResolvedLanguage, type TemplateVars } from "./i18n";
 
 type RuntimeStatusResponse = {
   ok?: boolean;
@@ -62,6 +64,22 @@ export default class AiTasksBoardPlugin extends Plugin {
   private runtimePid: number | null = null;
   private boardOverlay: BoardNoteOverlayManager | null = null;
 
+  private getObsidianLanguageCode(): string {
+    try {
+      return getLanguage?.() || "en";
+    } catch {
+      return "en";
+    }
+  }
+
+  getResolvedLanguage(): ResolvedLanguage {
+    return resolveLanguage(this.settings?.uiLanguage, this.getObsidianLanguageCode());
+  }
+
+  t(key: I18nKey, vars?: TemplateVars): string {
+    return translate(key, this.getResolvedLanguage(), vars);
+  }
+
   private getPluginDir(): string | null {
     const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
     const base = adapter?.getBasePath?.();
@@ -75,7 +93,7 @@ export default class AiTasksBoardPlugin extends Plugin {
 
     this.addCommand({
       id: "open-ai-tasks-board-note",
-      name: "AI Tasks: Open board note",
+      name: this.t("cmd.open_board_note"),
       callback: async () => {
         const boardPath = this.settings.boardPath;
         const abs = this.app.vault.getAbstractFileByPath(boardPath);
@@ -93,7 +111,7 @@ export default class AiTasksBoardPlugin extends Plugin {
 
     this.addCommand({
       id: "bulk-import-ai-tasks",
-      name: "AI Tasks: Import tasks (AI)",
+      name: this.t("cmd.bulk_import"),
       callback: () => {
         const sourcePath = this.app.workspace.getActiveFile()?.path ?? null;
         new AiTasksBulkImportModal(this, { selection: "", sourcePath }).open();
@@ -120,7 +138,7 @@ export default class AiTasksBoardPlugin extends Plugin {
 
         menu.addItem((item) => {
           item
-            .setTitle("AI Tasks: Add to board")
+            .setTitle(this.t("menu.add_to_board"))
             .setIcon("plus")
             .onClick(() => {
               new AiTasksDraftModal(this, { mode: "create", selection: sel, sourcePath: view.file?.path }).open();
@@ -129,7 +147,7 @@ export default class AiTasksBoardPlugin extends Plugin {
 
         menu.addItem((item) => {
           item
-            .setTitle("AI Tasks: Update board (AI)")
+            .setTitle(this.t("menu.update_board_ai"))
             .setIcon("wand-2")
             .onClick(() => {
               new AiTasksDraftModal(this, { mode: "auto", selection: sel, sourcePath: view.file?.path }).open();
@@ -138,7 +156,7 @@ export default class AiTasksBoardPlugin extends Plugin {
 
         menu.addItem((item) => {
           item
-            .setTitle("AI Tasks: Import selection as tasks (AI)")
+            .setTitle(this.t("menu.import_selection_ai"))
             .setIcon("list-plus")
             .onClick(() => {
               new AiTasksBulkImportModal(this, { selection: sel, sourcePath: view.file?.path }).open();
@@ -157,6 +175,10 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   requestOverlayUpdate(): void {
     void this.boardOverlay?.updateAll();
+  }
+
+  requestOverlayRefresh(): void {
+    this.boardOverlay?.requestRefresh();
   }
 
   async loadSettings(): Promise<void> {
@@ -205,13 +227,13 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   async startRuntime(): Promise<void> {
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
-      new Notice("AI Tasks: runtime already running.");
+      new Notice(this.t("notice.runtime.already_running"));
       return;
     }
 
     const cmd = this.settings.runtimeCommand.trim();
     if (!cmd) {
-      new Notice("AI Tasks: runtime command is empty.");
+      new Notice(this.t("notice.runtime.command_empty"));
       return;
     }
 
@@ -250,13 +272,13 @@ export default class AiTasksBoardPlugin extends Plugin {
         this.runtimePid = null;
       });
       child.on("error", (err) => {
-        new Notice(`AI Tasks: runtime start failed: ${err.message}`);
+        new Notice(this.t("notice.runtime.start_failed", { error: err.message }));
       });
 
-      new Notice(`AI Tasks: runtime starting${child.pid ? ` (pid ${child.pid})` : ""}.`);
+      new Notice(child.pid ? this.t("notice.runtime.starting_pid", { pid: child.pid }) : this.t("notice.runtime.starting"));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new Notice(`AI Tasks: runtime start failed: ${msg}`);
+      new Notice(this.t("notice.runtime.start_failed", { error: msg }));
     }
   }
 
@@ -273,25 +295,127 @@ export default class AiTasksBoardPlugin extends Plugin {
     }
 
     if (requested) {
-      new Notice("AI Tasks: runtime stop requested.");
+      new Notice(this.t("notice.runtime.stop_requested"));
     } else {
-      new Notice("AI Tasks: runtime not running.");
+      new Notice(this.t("notice.runtime.not_running"));
     }
+  }
+
+  async runTestAi(): Promise<void> {
+    const url = joinUrl(this.settings.runtimeUrl, "/v1/board/propose");
+    const req = {
+      mode: "create" as const,
+      draft:
+        this.getResolvedLanguage() === "zh-CN"
+          ? "这是一个诊断测试请求：请生成一个标题为“Test AI OK”的任务（不会写入文件）。"
+          : "This is a diagnostic request: please propose a task titled 'Test AI OK' (no writes).",
+      instruction: null,
+      tasks: [],
+      ai_model: this.getModelConfig(),
+      tag_presets: this.getTagPresets(),
+    };
+
+    const started = Date.now();
+    const result: DiagnosticsResult = {
+      kind: "ai",
+      url,
+      latency_ms: 0,
+      request: req,
+      ok: false,
+    };
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      const text = await resp.text().catch(() => "");
+      result.latency_ms = Math.max(0, Date.now() - started);
+      result.http_status = resp.status;
+      if (!resp.ok) {
+        result.error = text || `HTTP ${resp.status}`;
+      } else {
+        result.ok = true;
+        try {
+          result.response = JSON.parse(text);
+        } catch {
+          result.ok = false;
+          result.error = "invalid_json";
+          result.response = text;
+        }
+      }
+    } catch (e) {
+      result.latency_ms = Math.max(0, Date.now() - started);
+      result.error = e instanceof Error ? e.message : String(e);
+    }
+
+    new AiTasksDiagnosticsModal(this, result).open();
+  }
+
+  async runTestAgent(): Promise<void> {
+    const url = joinUrl(this.settings.runtimeUrl, "/v1/agent/ask");
+    const req = {
+      prompt:
+        this.getResolvedLanguage() === "zh-CN"
+          ? "这是一个诊断测试请求：请只回复 OK。"
+          : "This is a diagnostic request: reply with OK only.",
+      include_memory: false,
+      record_memory: false,
+      timeout_s: 60,
+    };
+
+    const started = Date.now();
+    const result: DiagnosticsResult = {
+      kind: "agent",
+      url,
+      latency_ms: 0,
+      request: req,
+      ok: false,
+    };
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      const text = await resp.text().catch(() => "");
+      result.latency_ms = Math.max(0, Date.now() - started);
+      result.http_status = resp.status;
+      if (!resp.ok) {
+        result.error = text || `HTTP ${resp.status}`;
+      } else {
+        result.ok = true;
+        try {
+          result.response = JSON.parse(text);
+        } catch {
+          result.ok = false;
+          result.error = "invalid_json";
+          result.response = text;
+        }
+      }
+    } catch (e) {
+      result.latency_ms = Math.max(0, Date.now() - started);
+      result.error = e instanceof Error ? e.message : String(e);
+    }
+
+    new AiTasksDiagnosticsModal(this, result).open();
   }
 
   async refreshRuntimeStatus(): Promise<string> {
     const status = await this.fetchRuntimeStatus();
     const online = status?.ok;
-    let text = online ? "online" : "offline";
+    let text = online ? this.t("runtime.status.online") : this.t("runtime.status.offline");
     if (online && status?.pid) {
       text += ` (pid ${status.pid})`;
     }
     if (online && typeof status?.uptime_s === "number") {
       const mins = Math.floor(status.uptime_s / 60);
-      text += ` uptime ${mins}m`;
+      text += ` ${this.t("runtime.status.uptime", { mins })}`;
     }
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null && this.runtimePid) {
-      text += ` | local pid ${this.runtimePid}`;
+      text += ` | ${this.t("runtime.status.local_pid", { pid: this.runtimePid })}`;
     }
     return text;
   }

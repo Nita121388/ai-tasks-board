@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import AiTasksBoardPlugin from "./main";
+import type { UiLanguageSetting } from "./i18n";
 
 export type AiModelProvider = "codex-cli" | "openai-compatible";
 
@@ -21,6 +22,7 @@ export type AiTasksBoardSettings = {
   runtimeUrl: string;
   tagPresets: string;
   boardLayout: BoardLayout;
+  uiLanguage: UiLanguageSetting;
   runtimeCommand: string;
   runtimeArgs: string;
   runtimeCwd: string;
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   runtimeUrl: "http://127.0.0.1:17890",
   tagPresets: "work\n学习\n效率\n运维\nopenclaw\nobsidian\npixel",
   boardLayout: "split",
+  uiLanguage: "auto",
   runtimeCommand: "ai-tasks-runtime",
   runtimeArgs: "serve",
   runtimeCwd: "",
@@ -71,8 +74,24 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Board file path")
-      .setDesc("Path to Board.md inside your vault (e.g. Tasks/Boards/Board.md).")
+      .setName(this.plugin.t("settings.ui_language.name"))
+      .setDesc(this.plugin.t("settings.ui_language.desc"))
+      .addDropdown((dropdown) => {
+        dropdown.addOption("auto", this.plugin.t("settings.ui_language.opt.auto"));
+        dropdown.addOption("zh-CN", this.plugin.t("settings.ui_language.opt.zh"));
+        dropdown.addOption("en", this.plugin.t("settings.ui_language.opt.en"));
+        dropdown.setValue(this.plugin.settings.uiLanguage || "auto");
+        dropdown.onChange(async (value) => {
+          this.plugin.settings.uiLanguage = value as UiLanguageSetting;
+          await this.plugin.saveSettings();
+          this.plugin.requestOverlayRefresh();
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.board_path.name"))
+      .setDesc(this.plugin.t("settings.board_path.desc"))
       .addText((text) => {
         text
           .setPlaceholder("Tasks/Boards/Board.md")
@@ -85,8 +104,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Render board in note")
-      .setDesc("Replace Board.md with a draggable visual board in the note area (editor + preview).")
+      .setName(this.plugin.t("settings.render_board_in_note.name"))
+      .setDesc(this.plugin.t("settings.render_board_in_note.desc"))
       .addToggle((toggle) => {
         toggle.setValue(Boolean(this.plugin.settings.renderBoardInNote)).onChange(async (value) => {
           this.plugin.settings.renderBoardInNote = value;
@@ -96,23 +115,23 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Board layout")
-      .setDesc("Default view for the in-note board UI.")
+      .setName(this.plugin.t("settings.board_layout.name"))
+      .setDesc(this.plugin.t("settings.board_layout.desc"))
       .addDropdown((dropdown) => {
-        dropdown.addOption("split", "Split (list + detail)");
-        dropdown.addOption("kanban", "Kanban (columns)");
-        dropdown.addOption("md", "MD (raw editor)");
+        dropdown.addOption("split", this.plugin.t("settings.board_layout.opt.split"));
+        dropdown.addOption("kanban", this.plugin.t("settings.board_layout.opt.kanban"));
+        dropdown.addOption("md", this.plugin.t("settings.board_layout.opt.md"));
         dropdown.setValue(this.plugin.settings.boardLayout || "split");
         dropdown.onChange(async (value) => {
           this.plugin.settings.boardLayout = value as BoardLayout;
           await this.plugin.saveSettings();
-          this.plugin.requestOverlayUpdate();
+          this.plugin.requestOverlayRefresh();
         });
       });
 
     new Setting(containerEl)
-      .setName("Archive folder path")
-      .setDesc("Folder for archived tasks (daily files), e.g. Archive.")
+      .setName(this.plugin.t("settings.archive_folder.name"))
+      .setDesc(this.plugin.t("settings.archive_folder.desc"))
       .addText((text) => {
         text
           .setPlaceholder("Archive")
@@ -124,8 +143,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Tag presets")
-      .setDesc("One tag per line. AI will prefer these tags when proposing/importing tasks.")
+      .setName(this.plugin.t("settings.tag_presets.name"))
+      .setDesc(this.plugin.t("settings.tag_presets.desc"))
       .addTextArea((text) => {
         text
           .setPlaceholder("work\\n学习\\n效率\\nopenclaw")
@@ -137,8 +156,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Runtime URL")
-      .setDesc("Local runtime base URL (Agno + FastAPI).")
+      .setName(this.plugin.t("settings.runtime_url.name"))
+      .setDesc(this.plugin.t("settings.runtime_url.desc"))
       .addText((text) => {
         text
           .setPlaceholder("http://127.0.0.1:17890")
@@ -149,38 +168,38 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
           });
       });
 
-    containerEl.createEl("h3", { text: "Runtime Service" });
+    containerEl.createEl("h3", { text: this.plugin.t("settings.runtime_service.heading") });
 
     const statusLine = containerEl.createDiv({ cls: "ai-tasks-runtime-status" });
-    const statusText = statusLine.createSpan({ text: "Status: unchecked" });
+    const statusText = statusLine.createSpan({ text: this.plugin.t("settings.runtime.status.unchecked") });
     const refreshStatus = async () => {
       statusText.textContent = await this.plugin.refreshRuntimeStatus();
     };
 
     new Setting(containerEl)
-      .setName("Runtime control")
-      .setDesc("Start/stop local ai-tasks-runtime and refresh status.")
+      .setName(this.plugin.t("settings.runtime_control.name"))
+      .setDesc(this.plugin.t("settings.runtime_control.desc"))
       .addButton((btn) => {
-        btn.setButtonText("Check status").onClick(async () => {
+        btn.setButtonText(this.plugin.t("settings.runtime_control.btn.check")).onClick(async () => {
           await refreshStatus();
         });
       })
       .addButton((btn) => {
-        btn.setButtonText("Start").onClick(async () => {
+        btn.setButtonText(this.plugin.t("settings.runtime_control.btn.start")).onClick(async () => {
           await this.plugin.startRuntime();
           await refreshStatus();
         });
       })
       .addButton((btn) => {
-        btn.setButtonText("Stop").onClick(async () => {
+        btn.setButtonText(this.plugin.t("settings.runtime_control.btn.stop")).onClick(async () => {
           await this.plugin.stopRuntime();
           await refreshStatus();
         });
       });
 
     new Setting(containerEl)
-      .setName("Runtime start command")
-      .setDesc("Executable to start the runtime (e.g. ai-tasks-runtime).")
+      .setName(this.plugin.t("settings.runtime_command.name"))
+      .setDesc(this.plugin.t("settings.runtime_command.desc"))
       .addText((text) => {
         text
           .setPlaceholder("ai-tasks-runtime")
@@ -192,8 +211,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Runtime args")
-      .setDesc("Arguments for runtime start (e.g. serve).")
+      .setName(this.plugin.t("settings.runtime_args.name"))
+      .setDesc(this.plugin.t("settings.runtime_args.desc"))
       .addText((text) => {
         text
           .setPlaceholder("serve")
@@ -205,8 +224,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Runtime working directory")
-      .setDesc("Optional working directory for the runtime process.")
+      .setName(this.plugin.t("settings.runtime_cwd.name"))
+      .setDesc(this.plugin.t("settings.runtime_cwd.desc"))
       .addText((text) => {
         text
           .setPlaceholder("E:\\path\\to\\ai-tasks-board\\runtime")
@@ -217,14 +236,14 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
           });
       });
 
-    containerEl.createEl("h3", { text: "Model Settings" });
+    containerEl.createEl("h3", { text: this.plugin.t("settings.model.heading") });
 
     new Setting(containerEl)
-      .setName("Model provider")
-      .setDesc("codex-cli (local) or OpenAI-compatible API.")
+      .setName(this.plugin.t("settings.model_provider.name"))
+      .setDesc(this.plugin.t("settings.model_provider.desc"))
       .addDropdown((dropdown) => {
-        dropdown.addOption("codex-cli", "codex-cli (local)");
-        dropdown.addOption("openai-compatible", "OpenAI-compatible API");
+        dropdown.addOption("codex-cli", this.plugin.t("settings.model_provider.opt.codex"));
+        dropdown.addOption("openai-compatible", this.plugin.t("settings.model_provider.opt.openai"));
         dropdown.setValue(this.plugin.settings.modelProvider);
         dropdown.onChange(async (value) => {
           this.plugin.settings.modelProvider = value as AiModelProvider;
@@ -233,8 +252,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Model name")
-      .setDesc("Model identifier (for OpenAI-compatible providers).")
+      .setName(this.plugin.t("settings.model_name.name"))
+      .setDesc(this.plugin.t("settings.model_name.desc"))
       .addText((text) => {
         text
           .setPlaceholder("gpt-4o-mini")
@@ -246,8 +265,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("API base URL")
-      .setDesc("Base URL for OpenAI-compatible API (e.g. https://api.openai.com).")
+      .setName(this.plugin.t("settings.model_base_url.name"))
+      .setDesc(this.plugin.t("settings.model_base_url.desc"))
       .addText((text) => {
         text
           .setPlaceholder("https://api.openai.com")
@@ -259,8 +278,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("API key")
-      .setDesc("API key for OpenAI-compatible providers (stored locally).")
+      .setName(this.plugin.t("settings.model_api_key.name"))
+      .setDesc(this.plugin.t("settings.model_api_key.desc"))
       .addText((text) => {
         text.inputEl.type = "password";
         text
@@ -273,8 +292,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Temperature")
-      .setDesc("Sampling temperature (e.g. 0.2).")
+      .setName(this.plugin.t("settings.model_temperature.name"))
+      .setDesc(this.plugin.t("settings.model_temperature.desc"))
       .addText((text) => {
         text
           .setPlaceholder("0.2")
@@ -286,8 +305,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Top P")
-      .setDesc("Nucleus sampling (0-1).")
+      .setName(this.plugin.t("settings.model_top_p.name"))
+      .setDesc(this.plugin.t("settings.model_top_p.desc"))
       .addText((text) => {
         text
           .setPlaceholder("1")
@@ -300,8 +319,8 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Max tokens")
-      .setDesc("Max output tokens (OpenAI-compatible).")
+      .setName(this.plugin.t("settings.model_max_tokens.name"))
+      .setDesc(this.plugin.t("settings.model_max_tokens.desc"))
       .addText((text) => {
         text
           .setPlaceholder("1024")
@@ -311,6 +330,26 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
             this.plugin.settings.modelMaxTokens = v;
             await this.plugin.saveSettings();
           });
+      });
+
+    containerEl.createEl("h3", { text: this.plugin.t("settings.diagnostics.heading") });
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.diagnostics.test_ai.name"))
+      .setDesc(this.plugin.t("settings.diagnostics.test_ai.desc"))
+      .addButton((btn) => {
+        btn.setButtonText(this.plugin.t("settings.diagnostics.test_ai.btn")).onClick(async () => {
+          await this.plugin.runTestAi();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.diagnostics.test_agent.name"))
+      .setDesc(this.plugin.t("settings.diagnostics.test_agent.desc"))
+      .addButton((btn) => {
+        btn.setButtonText(this.plugin.t("settings.diagnostics.test_agent.btn")).onClick(async () => {
+          await this.plugin.runTestAgent();
+        });
       });
 
     void refreshStatus();

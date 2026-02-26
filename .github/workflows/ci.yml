@@ -26,6 +26,9 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 
@@ -56,4 +59,3 @@ jobs:
 
       - name: CLI help
         run: ai-tasks-runtime --help
-
