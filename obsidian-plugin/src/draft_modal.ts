@@ -1,5 +1,6 @@
 import { Modal, Notice, TFile, Vault } from "obsidian";
 import type AiTasksBoardPlugin from "./main";
+import type { AiModelConfig } from "./settings";
 import { insertTaskBlock, moveTaskBlock, parseBoard, replaceTaskBlock } from "./board";
 import type { BoardStatus } from "./types";
 
@@ -17,6 +18,7 @@ type BoardProposeRequest = {
   draft: string;
   instruction?: string | null;
   tasks: TaskSummary[];
+  ai_model?: AiModelConfig;
 };
 
 type BoardProposeResponse = {
@@ -31,6 +33,17 @@ type BoardProposeResponse = {
 };
 
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
+
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function logError(context: string, err: unknown, extra?: Record<string, unknown>): void {
+  const msg = formatError(err);
+  const payload = { error: err, ...(extra ?? {}) };
+  console.error(`[ai-tasks-board] ${context}: ${msg}`, payload);
+}
 
 function normalizeStatus(s: string | null | undefined): BoardStatus {
   const t = (s ?? "").trim();
@@ -329,6 +342,7 @@ export class AiTasksDraftModal extends Modal {
         draft: this.draft,
         instruction: this.instruction || null,
         tasks,
+        ai_model: this.plugin.getModelConfig(),
       };
 
       this.proposal = await callRuntimePropose(this.plugin, req);
@@ -397,9 +411,13 @@ export class AiTasksDraftModal extends Modal {
       if (this.proposal.confidence != null) meta.push(`confidence=${this.proposal.confidence.toFixed(2)}`);
       this.setStatus(meta.length ? meta.join(" | ") : "Preview ready.");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = formatError(e);
+      logError("生成预览失败", e, {
+        boardPath: this.plugin.settings.boardPath,
+        mode: this.mode,
+      });
       this.setStatus(`Failed: ${msg}`);
-      new Notice(`AI Tasks: ${msg}`);
+      new Notice(`AI Tasks: 预览失败：${msg}（详见控制台）`);
     }
   }
 
@@ -424,8 +442,11 @@ export class AiTasksDraftModal extends Modal {
       new Notice("AI Tasks: wrote board update (history snapshot created).");
       this.close();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      new Notice(`AI Tasks: write failed: ${msg}`);
+      const msg = formatError(e);
+      logError("写入看板失败", e, {
+        boardPath: this.boardFile?.path ?? this.plugin.settings.boardPath,
+      });
+      new Notice(`AI Tasks: 写入失败：${msg}（详见控制台）`);
     }
   }
 }

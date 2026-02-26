@@ -51,5 +51,12 @@ class Settings(BaseSettings):
     # Codex session logs root (Codex CLI stores rollouts as JSONL here).
     codex_sessions_dir: Path = Path.home() / ".codex" / "sessions"
 
+    # 允许 Obsidian 桌面端通过 app:// 协议访问本地运行时
+    cors_allow_origins: List[str] = [
+        "app://obsidian.md",
+        "http://127.0.0.1",
+        "http://localhost",
+    ]
+
 
 settings = Settings()

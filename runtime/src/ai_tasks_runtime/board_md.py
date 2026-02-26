@@ -241,6 +241,30 @@ def parse_board(content: str) -> ParsedBoard:
     return ParsedBoard(content=content, auto_start=auto_start, auto_end=auto_end, sections=sections)
 
 
+def ensure_status_sections(content: str, statuses: Optional[List[str]] = None) -> str:
+    parsed = parse_board(content)
+    wanted = statuses or STATUSES
+    missing = [s for s in wanted if s not in parsed.sections]
+    if not missing:
+        return content
+
+    lines: List[str] = []
+    for s in wanted:
+        if s in missing:
+            lines.append(f"## {s}")
+            lines.append("")
+    insertion = "\n".join(lines)
+    if insertion and not insertion.endswith("\n"):
+        insertion += "\n"
+
+    prefix = content[: parsed.auto_end]
+    suffix = content[parsed.auto_end :]
+    if prefix and not prefix.endswith("\n"):
+        prefix += "\n"
+
+    return prefix + insertion + suffix
+
+
 def build_task_block(
     *,
     task_uuid: Optional[str] = None,
@@ -295,6 +319,7 @@ def _find_insertion_point(parsed: ParsedBoard, to_status: str, before_uuid: Opti
 
 
 def insert_task_block(content: str, to_status: str, before_uuid: Optional[str], block: str) -> str:
+    content = ensure_status_sections(content)
     parsed = parse_board(content)
     insert_at = _find_insertion_point(parsed, to_status, before_uuid)
 

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
+import signal
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from pydantic import BaseModel
 
 from ai_tasks_runtime.agent_workspace import (
@@ -21,6 +28,17 @@ from ai_tasks_runtime.prompts import render_prompt
 
 
 app = FastAPI(title="AI Tasks Runtime", version="0.0.0")
+STARTED_AT = time.time()
+logger = logging.getLogger("ai_tasks_runtime")
+
+# 允许 Obsidian 桌面端调用本地运行时 API（CORS）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class CodexExecRequest(BaseModel):
@@ -55,6 +73,16 @@ class TaskSummary(BaseModel):
     tags: List[str] = []
 
 
+class ModelConfig(BaseModel):
+    provider: Literal["codex-cli", "openai-compatible"] = "codex-cli"
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+
+
 class BoardProposeRequest(BaseModel):
     # "auto": decide create vs update
     # "create": always create new task
@@ -63,6 +91,7 @@ class BoardProposeRequest(BaseModel):
     draft: str
     instruction: Optional[str] = None
     tasks: List[TaskSummary] = []
+    ai_model: Optional[ModelConfig] = None
 
 
 class BoardProposeResponse(BaseModel):
@@ -76,9 +105,38 @@ class BoardProposeResponse(BaseModel):
     confidence: Optional[float] = None
 
 
+class RuntimeShutdownRequest(BaseModel):
+    force: bool = False
+
+
 @app.get("/v1/health")
 def health() -> Dict[str, Any]:
     return {"ok": True, "service": "ai-tasks-runtime", "version": "0.0.0"}
+
+
+@app.get("/v1/runtime/status")
+def runtime_status() -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "service": "ai-tasks-runtime",
+        "version": "0.0.0",
+        "pid": os.getpid(),
+        "uptime_s": max(0.0, time.time() - STARTED_AT),
+    }
+
+
+@app.post("/v1/runtime/shutdown")
+def runtime_shutdown(req: RuntimeShutdownRequest) -> Dict[str, Any]:
+    def _do_shutdown() -> None:
+        try:
+            if req.force:
+                os._exit(0)
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Timer(0.2, _do_shutdown).start()
+    return {"ok": True, "pid": os.getpid()}
 
 
 @app.post("/v1/codex/exec", response_model=CodexExecResponse)
@@ -208,6 +266,96 @@ def _parse_json_obj(text: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _normalize_model_config(req: BoardProposeRequest) -> ModelConfig:
+    return req.ai_model or ModelConfig()
+
+
+def _openai_url(base_url: Optional[str]) -> str:
+    root = (base_url or "https://api.openai.com").rstrip("/")
+    if root.endswith("/v1"):
+        return f"{root}/chat/completions"
+    return f"{root}/v1/chat/completions"
+
+
+def _openai_compat_propose(req: BoardProposeRequest, cfg: ModelConfig) -> Optional[BoardProposeResponse]:
+    tasks_json = [
+        {"uuid": t.uuid, "title": t.title, "status": t.status, "tags": t.tags}
+        for t in req.tasks
+    ]
+
+    agent_dir = settings.agent_dir
+    try:
+        ensure_agent_workspace(agent_dir, force=False)
+        ctx_files = load_agent_files(agent_dir, include=["SOUL.md", "AGENTS.md"])
+        ctx = build_agent_context_prelude(ctx_files)
+    except Exception:
+        ctx = ""
+
+    instruction_block = ""
+    if req.instruction and req.instruction.strip():
+        instruction_block = f"Additional user instruction:\\n{req.instruction.strip()}\\n"
+
+    prompt = render_prompt(
+        agent_dir,
+        "board.propose.v1",
+        {
+            "ctx": ctx,
+            "mode": req.mode,
+            "tasks_json": json.dumps(tasks_json, ensure_ascii=False),
+            "draft": req.draft,
+            "instruction_block": instruction_block,
+        },
+    )
+
+    url = _openai_url(cfg.base_url)
+    headers = {"Content-Type": "application/json"}
+    if cfg.api_key and cfg.api_key.strip():
+        headers["Authorization"] = f"Bearer {cfg.api_key.strip()}"
+
+    payload: Dict[str, Any] = {
+        "model": cfg.model or "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if cfg.temperature is not None:
+        payload["temperature"] = cfg.temperature
+    if cfg.top_p is not None:
+        payload["top_p"] = cfg.top_p
+    if cfg.max_tokens is not None and cfg.max_tokens > 0:
+        payload["max_tokens"] = cfg.max_tokens
+
+    resp = httpx.post(url, json=payload, headers=headers, timeout=120)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"openai-compatible call failed: {resp.status_code} {resp.text}")
+
+    data = resp.json()
+    choices = data.get("choices") or []
+    if not choices:
+        return None
+    msg = choices[0].get("message") or {}
+    text = msg.get("content") or ""
+    if not isinstance(text, str) or not text.strip():
+        return None
+
+    obj = _parse_json_obj(text)
+    if not obj:
+        return None
+
+    action = obj.get("action")
+    if action not in ("create", "update"):
+        return None
+
+    return BoardProposeResponse(
+        action=action,
+        target_uuid=obj.get("target_uuid"),
+        title=str(obj.get("title") or "Untitled").strip() or "Untitled",
+        status=str(obj.get("status") or "Unassigned"),
+        tags=list(obj.get("tags") or []),
+        body=str(obj.get("body") or ""),
+        reasoning=str(obj.get("reasoning") or "") or None,
+        confidence=float(obj.get("confidence")) if obj.get("confidence") is not None else None,
+    )
+
+
 def _codex_propose(req: BoardProposeRequest) -> Optional[BoardProposeResponse]:
     # Best-effort AI proposal. If Codex CLI isn't available/configured, callers will fall back.
     tasks_json = [
@@ -308,14 +456,18 @@ def _heuristic_propose(req: BoardProposeRequest) -> BoardProposeResponse:
 def board_propose(req: BoardProposeRequest) -> BoardProposeResponse:
     # Try AI first; fall back to deterministic heuristics.
     try:
-        proposed = _codex_propose(req)
+        cfg = _normalize_model_config(req)
+        if cfg.provider == "openai-compatible":
+            proposed = _openai_compat_propose(req, cfg)
+        else:
+            proposed = _codex_propose(req)
         if proposed is not None:
             # Respect caller hint: if mode=create, never return update.
             if req.mode == "create" and proposed.action == "update":
                 proposed.action = "create"
                 proposed.target_uuid = None
             return proposed
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.exception("board_propose failed; falling back to heuristic", exc_info=exc)
 
     return _heuristic_propose(req)

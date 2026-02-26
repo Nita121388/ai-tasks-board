@@ -7,6 +7,17 @@ export const AI_TASKS_VIEW_TYPE = "ai-tasks-board-view";
 
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
 
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function logError(context: string, err: unknown, extra?: Record<string, unknown>): void {
+  const msg = formatError(err);
+  const payload = { error: err, ...(extra ?? {}) };
+  console.error(`[ai-tasks-board] ${context}: ${msg}`, payload);
+}
+
 function nowIsoForFilename(): string {
   // Avoid ':' for Windows compatibility.
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -334,6 +345,7 @@ export class AiTasksBoardView extends ItemView {
     try {
       parsed = parseBoard(content);
     } catch (e) {
+      logError("解析看板失败", e, { boardPath: boardFile.path });
       const err = root.createDiv({ cls: "ai-tasks-board-error" });
       err.createDiv({
         text:
@@ -357,38 +369,52 @@ export class AiTasksBoardView extends ItemView {
     const columns = root.createDiv({ cls: "ai-tasks-board-columns" });
 
     const onMove = async (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => {
-      const current = await this.app.vault.read(boardFile);
-      const next = moveTaskBlock(current, uuid, toStatus, beforeUuid);
-      await this.writeBoard(boardFile, next);
-      await this.render();
+      try {
+        const current = await this.app.vault.read(boardFile);
+        const next = moveTaskBlock(current, uuid, toStatus, beforeUuid);
+        await this.writeBoard(boardFile, next);
+        await this.render();
+      } catch (e) {
+        logError("移动任务失败", e, {
+          boardPath: boardFile.path,
+          uuid,
+          toStatus,
+          beforeUuid,
+        });
+        new Notice(`AI Tasks: 移动任务失败：${formatError(e)}（详见控制台）`);
+      }
     };
 
     const onArchive = async (uuid: string) => {
       if (!window.confirm("Archive this task?")) return;
+      try {
+        const current = await this.app.vault.read(boardFile);
+        const { removed, next } = removeTaskBlock(current, uuid);
 
-      const current = await this.app.vault.read(boardFile);
-      const { removed, next } = removeTaskBlock(current, uuid);
+        const dateStr = todayLocalDate();
+        const archivePath = deriveArchivePath(this.plugin.settings.archiveFolderPath, dateStr);
 
-      const dateStr = todayLocalDate();
-      const archivePath = deriveArchivePath(this.plugin.settings.archiveFolderPath, dateStr);
+        const archivedBlock = markTaskArchived(removed.rawBlock, new Date().toISOString());
 
-      const archivedBlock = markTaskArchived(removed.rawBlock, new Date().toISOString());
+        // Append to archive first to avoid losing the task if board write succeeds but archive fails.
+        const parent = archivePath.split("/").slice(0, -1).join("/");
+        if (parent) await ensureFolder(this.app.vault, parent);
+        const abs = this.app.vault.getAbstractFileByPath(archivePath);
+        if (abs instanceof TFile) {
+          const prev = await this.app.vault.read(abs);
+          const sep = prev.endsWith("\n") ? "\n" : "\n\n";
+          await this.app.vault.modify(abs, prev + sep + archivedBlock);
+        } else {
+          await this.app.vault.create(archivePath, buildArchiveTemplate(dateStr) + archivedBlock);
+        }
 
-      // Append to archive first to avoid losing the task if board write succeeds but archive fails.
-      const parent = archivePath.split("/").slice(0, -1).join("/");
-      if (parent) await ensureFolder(this.app.vault, parent);
-      const abs = this.app.vault.getAbstractFileByPath(archivePath);
-      if (abs instanceof TFile) {
-        const prev = await this.app.vault.read(abs);
-        const sep = prev.endsWith("\n") ? "\n" : "\n\n";
-        await this.app.vault.modify(abs, prev + sep + archivedBlock);
-      } else {
-        await this.app.vault.create(archivePath, buildArchiveTemplate(dateStr) + archivedBlock);
+        await this.writeBoard(boardFile, next);
+        new Notice(`Archived task to ${archivePath}`);
+        await this.render();
+      } catch (e) {
+        logError("归档任务失败", e, { boardPath: boardFile.path, uuid });
+        new Notice(`AI Tasks: 归档失败：${formatError(e)}（详见控制台）`);
       }
-
-      await this.writeBoard(boardFile, next);
-      new Notice(`Archived task to ${archivePath}`);
-      await this.render();
     };
 
     for (const status of STATUSES) {

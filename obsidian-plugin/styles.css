@@ -186,6 +186,12 @@
   line-height: 1.35;
 }
 
+.ai-tasks-runtime-status {
+  font-size: 12px;
+  opacity: 0.85;
+  margin: 6px 0 10px;
+}
+
 @media (max-width: 900px) {
   .ai-tasks-draft-preview {
     grid-template-columns: 1fr;

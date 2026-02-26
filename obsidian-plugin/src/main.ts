@@ -1,10 +1,45 @@
-import { Editor, MarkdownView, Menu, Plugin, WorkspaceLeaf } from "obsidian";
-import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiTasksBoardSettings } from "./settings";
+import { Editor, MarkdownView, Menu, Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { spawn, type ChildProcess } from "child_process";
+import { appendFileSync, mkdirSync } from "fs";
+import { join } from "path";
+import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiModelConfig, type AiTasksBoardSettings } from "./settings";
 import { AI_TASKS_VIEW_TYPE, AiTasksBoardView } from "./view";
 import { AiTasksDraftModal } from "./draft_modal";
 
+type RuntimeStatusResponse = {
+  ok?: boolean;
+  pid?: number;
+  uptime_s?: number;
+  version?: string;
+};
+
+function joinUrl(base: string, path: string): string {
+  return base.replace(/\/+$/g, "") + path;
+}
+
+function splitArgs(input: string): string[] {
+  if (!input) return [];
+  const out: string[] = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(input)) !== null) {
+    const token = m[1] ?? m[2] ?? m[3];
+    if (token) out.push(token);
+  }
+  return out;
+}
+
 export default class AiTasksBoardPlugin extends Plugin {
   settings: AiTasksBoardSettings;
+  private runtimeProcess: ChildProcess | null = null;
+  private runtimePid: number | null = null;
+
+  private getPluginDir(): string | null {
+    const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
+    const base = adapter?.getBasePath?.();
+    if (!base) return null;
+    return join(base, this.app.vault.configDir, "plugins", "ai-tasks-board");
+  }
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -70,5 +105,136 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  getModelConfig(): AiModelConfig {
+    if (this.settings.modelProvider !== "openai-compatible") {
+      return { provider: "codex-cli" };
+    }
+
+    const cfg: AiModelConfig = {
+      provider: "openai-compatible",
+      model: this.settings.modelName?.trim() || undefined,
+      base_url: this.settings.modelBaseUrl?.trim() || undefined,
+      api_key: this.settings.modelApiKey?.trim() || undefined,
+      temperature: this.settings.modelTemperature,
+      max_tokens: this.settings.modelMaxTokens,
+      top_p: this.settings.modelTopP,
+    };
+    return cfg;
+  }
+
+  async startRuntime(): Promise<void> {
+    if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
+      new Notice("AI Tasks: runtime already running.");
+      return;
+    }
+
+    const cmd = this.settings.runtimeCommand.trim();
+    if (!cmd) {
+      new Notice("AI Tasks: runtime command is empty.");
+      return;
+    }
+
+    const args = splitArgs(this.settings.runtimeArgs || "");
+    const cwd = this.settings.runtimeCwd.trim() || undefined;
+
+    try {
+      const child = spawn(cmd, args, {
+        cwd,
+        windowsHide: true,
+        shell: false,
+      });
+      this.runtimeProcess = child;
+      this.runtimePid = child.pid ?? null;
+
+      const logDir = this.getPluginDir();
+      if (logDir) {
+        try {
+          mkdirSync(logDir, { recursive: true });
+          const stdoutPath = join(logDir, "runtime.stdout.log");
+          const stderrPath = join(logDir, "runtime.stderr.log");
+          child.stdout?.on("data", (buf) => {
+            appendFileSync(stdoutPath, buf.toString());
+          });
+          child.stderr?.on("data", (buf) => {
+            appendFileSync(stderrPath, buf.toString());
+          });
+          console.info(`[ai-tasks-board] runtime logs: ${stdoutPath} / ${stderrPath}`);
+        } catch (e) {
+          console.error("[ai-tasks-board] failed to init runtime log files", e);
+        }
+      }
+
+      child.on("exit", () => {
+        this.runtimeProcess = null;
+        this.runtimePid = null;
+      });
+      child.on("error", (err) => {
+        new Notice(`AI Tasks: runtime start failed: ${err.message}`);
+      });
+
+      new Notice(`AI Tasks: runtime starting${child.pid ? ` (pid ${child.pid})` : ""}.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      new Notice(`AI Tasks: runtime start failed: ${msg}`);
+    }
+  }
+
+  async stopRuntime(): Promise<void> {
+    let requested = false;
+
+    if (await this.requestRuntimeShutdown()) {
+      requested = true;
+    }
+
+    if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
+      this.runtimeProcess.kill();
+      requested = true;
+    }
+
+    if (requested) {
+      new Notice("AI Tasks: runtime stop requested.");
+    } else {
+      new Notice("AI Tasks: runtime not running.");
+    }
+  }
+
+  async refreshRuntimeStatus(): Promise<string> {
+    const status = await this.fetchRuntimeStatus();
+    const online = status?.ok;
+    let text = online ? "online" : "offline";
+    if (online && status?.pid) {
+      text += ` (pid ${status.pid})`;
+    }
+    if (online && typeof status?.uptime_s === "number") {
+      const mins = Math.floor(status.uptime_s / 60);
+      text += ` uptime ${mins}m`;
+    }
+    if (this.runtimeProcess && this.runtimeProcess.exitCode === null && this.runtimePid) {
+      text += ` | local pid ${this.runtimePid}`;
+    }
+    return text;
+  }
+
+  private async fetchRuntimeStatus(): Promise<RuntimeStatusResponse | null> {
+    const url = joinUrl(this.settings.runtimeUrl, "/v1/runtime/status");
+    try {
+      const resp = await fetch(url, { method: "GET" });
+      if (!resp.ok) return null;
+      return (await resp.json()) as RuntimeStatusResponse;
+    } catch {
+      return null;
+    }
+  }
+
+  private async requestRuntimeShutdown(): Promise<boolean> {
+    const url = joinUrl(this.settings.runtimeUrl, "/v1/runtime/shutdown");
+    try {
+      const resp = await fetch(url, { method: "POST" });
+      return resp.ok;
+    } catch {
+      return false;
+    }
   }
 }

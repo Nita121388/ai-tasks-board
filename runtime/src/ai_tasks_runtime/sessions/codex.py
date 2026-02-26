@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.sessions.state import SessionsState, save_sessions_state
 
+
+logger = logging.getLogger("ai_tasks_runtime.sessions")
 
 _UUID_IN_FILENAME_RE = re.compile(
     r"(?P<uuid>[0-9a-fA-F]{8}-"
@@ -451,7 +454,11 @@ def sync_codex_sessions(
             board_content = board_path.read_text(encoding="utf-8")
             # Validate board markers early so we don't loop-fail per session.
             parse_board(board_content)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Board parse failed; disable linking",
+                extra={"board_rel_path": board_rel_path, "error": str(exc)},
+            )
             link_board = False
             board_content = None
 
@@ -468,6 +475,7 @@ def sync_codex_sessions(
     errors = 0
 
     for rollout in iter_rollout_files(root):
+        session_id: Optional[str] = None
         try:
             st = rollout.stat()
         except Exception:
@@ -617,8 +625,16 @@ def sync_codex_sessions(
                         board_content = insert_task_block(board_content, "Unassigned", first_unassigned, block)
                         board_changed = True
                         created_unassigned += 1
-        except Exception:
+        except Exception as exc:
             errors += 1
+            logger.exception(
+                "sync_codex_sessions failed",
+                exc_info=exc,
+                extra={
+                    "rollout": str(rollout),
+                    "session_id": session_id or "unknown",
+                },
+            )
             continue
 
     if link_board and board_changed and board_content is not None:

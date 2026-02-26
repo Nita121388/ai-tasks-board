@@ -2,6 +2,13 @@ import { BoardSection, BoardStatus, BoardTask, ParsedBoard } from "./types";
 
 const AUTO_BEGIN = "<!-- AI-TASKS:BEGIN -->";
 const AUTO_END = "<!-- AI-TASKS:END -->";
+const ALL_STATUSES: BoardStatus[] = [
+  "Unassigned",
+  "Todo",
+  "Doing",
+  "Review",
+  "Done",
+];
 
 const TASK_BEGIN_RE =
   /<!--\s*AI-TASKS:TASK\s+([0-9a-fA-F-]{8,})\s+BEGIN\s*-->/g;
@@ -153,6 +160,29 @@ export function parseBoard(content: string): ParsedBoard {
   return { content, autoStart, autoEnd, sections };
 }
 
+function ensureStatusSections(content: string): string {
+  const { autoStart, autoEnd } = findAutoArea(content);
+  const sections = parseSections(content, autoStart, autoEnd);
+  const missing = ALL_STATUSES.filter((s) => !sections.has(s));
+  if (missing.length === 0) return content;
+
+  const lines: string[] = [];
+  for (const status of ALL_STATUSES) {
+    if (!missing.includes(status)) continue;
+    lines.push(`## ${status}`, "");
+  }
+  let insertion = lines.join("\n");
+  if (!insertion.endsWith("\n")) insertion += "\n";
+
+  let prefix = content.slice(0, autoEnd);
+  const suffix = content.slice(autoEnd);
+  if (prefix.length > 0 && !prefix.endsWith("\n")) {
+    prefix += "\n";
+  }
+
+  return prefix + insertion + suffix;
+}
+
 function rewriteStatusField(block: string, newStatus: BoardStatus): string {
   const lines = block.split("\n");
   let changed = false;
@@ -205,7 +235,8 @@ export function moveTaskBlock(
   toStatus: BoardStatus,
   beforeUuid: string | null
 ): string {
-  const parsed = parseBoard(content);
+  const normalized = ensureStatusSections(content);
+  const parsed = parseBoard(normalized);
 
   let moving: BoardTask | null = null;
   let fromStatus: BoardStatus | null = null;
@@ -230,7 +261,7 @@ export function moveTaskBlock(
   }
 
   // Remove the block first.
-  let next = content.slice(0, moving.start) + content.slice(moving.end);
+  let next = normalized.slice(0, moving.start) + normalized.slice(moving.end);
 
   // Re-parse after removal to get correct offsets for insertion.
   const parsedAfterRemoval = parseBoard(next);
@@ -253,11 +284,12 @@ export function insertTaskBlock(
   beforeUuid: string | null,
   block: string
 ): string {
-  const parsed = parseBoard(content);
+  const normalized = ensureStatusSections(content);
+  const parsed = parseBoard(normalized);
   const insertAt = findInsertionPoint(parsed, toStatus, beforeUuid);
 
-  const prefix = content.slice(0, insertAt);
-  const suffix = content.slice(insertAt);
+  const prefix = normalized.slice(0, insertAt);
+  const suffix = normalized.slice(insertAt);
   const needsLeadingNl = prefix.length > 0 && !prefix.endsWith("\n");
   const needsTrailingNl = !block.endsWith("\n");
   const finalBlock =
