@@ -80,7 +80,7 @@ def _replace_project_version_in_pyproject(pyproject_text: str, version: str) -> 
         if stripped.startswith("[") and stripped.endswith("]"):
             in_project = stripped == "[project]"
 
-        if in_project and not replaced and re.match(r'^\\s*version\\s*=\\s*".*"\\s*$', line):
+        if in_project and not replaced and re.match(r'^\s*version\s*=\s*".*"\s*$', line):
             out.append(f'version = "{version}"')
             replaced = True
             continue
@@ -106,7 +106,7 @@ def _bump_runtime(version: str) -> None:
     if "__version__" not in init_text:
         raise RuntimeError(f"Missing __version__ in {init_path}")
     init_text2, n = re.subn(
-        r'(?m)^__version__\\s*=\\s*".*"\\s*$',
+        r'(?m)^__version__\s*=\s*".*"\s*$',
         f'__version__ = "{version}"',
         init_text,
         count=1,
