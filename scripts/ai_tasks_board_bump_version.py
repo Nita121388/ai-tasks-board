@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 
-RE_SEMVER = re.compile(r"^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$")
+RE_SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -135,4 +135,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
