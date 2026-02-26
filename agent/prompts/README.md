@@ -11,6 +11,7 @@ Rules:
 Files:
 - `board.agent.apply.v1.md` (board.agent.apply.v1)
 - `board.propose.v1.md` (board.propose.v1)
+- `board.split.v1.md` (board.split.v1)
 - `sessions.codex.summarize.v1.md` (sessions.codex.summarize.v1)
 - `sessions.codex.match_task.v1.md` (sessions.codex.match_task.v1)
 - `agent.ask.v1.md` (agent.ask.v1)

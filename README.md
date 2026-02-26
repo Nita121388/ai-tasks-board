@@ -73,9 +73,13 @@ npm run build
   - Opens (or creates) your `Board.md`.
   - When enabled, the plugin renders a draggable board UI directly in the note area (works in both editor + reading mode).
   - Underlying Markdown storage remains in `Board.md` but is hidden by default (toggle in plugin settings).
+- Command: `AI Tasks: Import tasks (AI)`
+  - Paste a messy task list and let AI split it into multiple tasks (titles + tags) before writing to `Board.md`.
+  - Uses tag presets from plugin settings (one tag per line).
 - Context menu (any note): select text -> right click
   - `AI Tasks: Add to board`
   - `AI Tasks: Update board (AI)`
+  - `AI Tasks: Import selection as tasks (AI)`
 
 #### History + AI logs (vault files)
 

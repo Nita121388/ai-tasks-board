@@ -18,3 +18,4 @@
 - Obsidian plugin: replaced the Board.md note content with an in-note draggable board UI (editor + reading mode) and hid raw Markdown by default (toggleable setting).
 - Obsidian plugin: fixed the escaped-newline bug (literal `\\n` in Board.md) and added auto-migration + history snapshot when detected.
 - Obsidian plugin: added vault-side JSONL logs for AI calls and board writes; UI shows `engine=ai|heuristic` + confidence/reasoning when available.
+- Obsidian plugin: added bulk import (AI split) + tag presets to convert a messy list into multiple tagged tasks with correct titles.

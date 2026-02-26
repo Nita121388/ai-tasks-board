@@ -17,6 +17,9 @@ Mode hint: {{mode}}
 Existing tasks (JSON):
 {{tasks_json}}
 
+Tag presets (JSON, optional; prefer these when possible):
+{{tag_presets_json}}
+
 User draft:
 {{draft}}
 

@@ -5,6 +5,7 @@ import { moveTaskBlock, normalizeEscapedNewlines, parseBoard, removeTaskBlock } 
 import type { BoardStatus, BoardTask } from "./types";
 import { ensureFolder, writeWithHistory } from "./board_fs";
 import { AiTasksEditTaskModal } from "./task_edit_modal";
+import { AiTasksBulkImportModal } from "./bulk_import_modal";
 
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
 
@@ -110,6 +111,11 @@ export class BoardPanel {
     left.createDiv({ cls: "ai-tasks-board-title", text: "AI Tasks Board" });
 
     const controls = header.createDiv({ cls: "ai-tasks-board-controls" });
+
+    const importBtn = controls.createEl("button", { text: "Import", cls: "ai-tasks-board-import" });
+    importBtn.addEventListener("click", () => {
+      new AiTasksBulkImportModal(this.plugin, { selection: "", sourcePath: this.boardFile.path }).open();
+    });
 
     const search = controls.createEl("input", {
       type: "search",
@@ -353,4 +359,3 @@ export class BoardPanel {
     }
   }
 }
-

@@ -50,8 +50,49 @@ PROMPTS: Dict[str, PromptSpec] = {
             "Existing tasks (JSON):\n"
             "{{tasks_json}}\n"
             "\n"
+            "Tag presets (JSON, optional; prefer these when possible):\n"
+            "{{tag_presets_json}}\n"
+            "\n"
             "User draft:\n"
             "{{draft}}\n"
+            "\n"
+            "{{instruction_block}}"
+        ),
+    ),
+    "board.split.v1": PromptSpec(
+        key="board.split.v1",
+        filename="board.split.v1.md",
+        description="Split a user text blob into multiple tasks with titles + tags.",
+        template=(
+            "{{ctx}}"
+            "You are helping maintain an Obsidian Markdown task board.\n"
+            "Given an unstructured or semi-structured text blob, split it into multiple tasks.\n"
+            "\n"
+            "Return ONLY valid JSON with this shape:\n"
+            "{\n"
+            '  \"tasks\": [\n'
+            "    {\n"
+            '      \"title\": string,\n'
+            '      \"status\": \"Unassigned\"|\"Todo\"|\"Doing\"|\"Review\"|\"Done\",\n'
+            '      \"tags\": string[],\n'
+            '      \"body\": string\n'
+            "    }\n"
+            "  ],\n"
+            '  \"reasoning\": string,\n'
+            '  \"confidence\": number\n'
+            "}\n"
+            "\n"
+            "Rules:\n"
+            "- Extract each actionable item as a separate task.\n"
+            "- Task title should be short and specific (<= 16 Chinese chars or <= 80 Latin chars).\n"
+            "- Prefer tags from tag_presets when provided; choose 1-3 tags per task.\n"
+            "- Limit tasks to max_tasks={{max_tasks}}.\n"
+            "\n"
+            "Tag presets (JSON):\n"
+            "{{tag_presets_json}}\n"
+            "\n"
+            "Input text:\n"
+            "{{text}}\n"
             "\n"
             "{{instruction_block}}"
         ),

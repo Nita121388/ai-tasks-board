@@ -21,6 +21,7 @@ type BoardProposeRequest = {
   instruction?: string | null;
   tasks: TaskSummary[];
   ai_model?: AiModelConfig;
+  tag_presets?: string[];
 };
 
 type BoardProposeResponse = {
@@ -33,6 +34,9 @@ type BoardProposeResponse = {
   reasoning?: string | null;
   confidence?: number | null;
   engine?: string | null;
+  provider?: string | null;
+  thread_id?: string | null;
+  ai_fallback?: string | null;
 };
 
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
@@ -321,6 +325,7 @@ export class AiTasksDraftModal extends Modal {
         instruction: this.instruction || null,
         tasks,
         ai_model: this.plugin.getModelConfig(),
+        tag_presets: this.plugin.getTagPresets(),
       };
 
       await appendAiTasksLog(this.plugin, {
@@ -329,6 +334,8 @@ export class AiTasksDraftModal extends Modal {
         draft_len: req.draft.length,
         instruction_len: (req.instruction ?? "").length,
         tasks_count: req.tasks.length,
+        tag_presets_count: req.tag_presets?.length ?? 0,
+        model_provider: req.ai_model?.provider ?? null,
         runtime_url: this.plugin.settings.runtimeUrl,
       });
 
@@ -337,6 +344,9 @@ export class AiTasksDraftModal extends Modal {
         await appendAiTasksLog(this.plugin, {
           type: "board.propose.response",
           engine: this.proposal.engine ?? null,
+          provider: this.proposal.provider ?? null,
+          thread_id: this.proposal.thread_id ?? null,
+          ai_fallback: this.proposal.ai_fallback ?? null,
           action: this.proposal.action,
           target_uuid: this.proposal.target_uuid ?? null,
           status: this.proposal.status,
@@ -414,6 +424,8 @@ export class AiTasksDraftModal extends Modal {
 
       const meta = [];
       if (this.proposal.engine) meta.push(`engine=${this.proposal.engine}`);
+      if (this.proposal.thread_id) meta.push(`thread=${this.proposal.thread_id}`);
+      if (this.proposal.ai_fallback) meta.push(`ai_fallback=${this.proposal.ai_fallback}`);
       if (this.proposal.reasoning) meta.push(this.proposal.reasoning);
       if (this.proposal.confidence != null) meta.push(`confidence=${this.proposal.confidence.toFixed(2)}`);
       this.setStatus(meta.length ? meta.join(" | ") : "Preview ready.");

@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiModelConfig, type AiTasksBoardSettings } from "./settings";
 import { AiTasksDraftModal } from "./draft_modal";
+import { AiTasksBulkImportModal } from "./bulk_import_modal";
 import { ensureFolder } from "./board_fs";
 import { BoardNoteOverlayManager } from "./board_note_overlay";
 
@@ -90,6 +91,15 @@ export default class AiTasksBoardPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "bulk-import-ai-tasks",
+      name: "AI Tasks: Import tasks (AI)",
+      callback: () => {
+        const sourcePath = this.app.workspace.getActiveFile()?.path ?? null;
+        new AiTasksBulkImportModal(this, { selection: "", sourcePath }).open();
+      },
+    });
+
     // Board note overlay: render the draggable board UI directly in the note area
     // (both editor + reading modes), and keep raw Markdown hidden by default.
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.requestOverlayUpdate()));
@@ -123,6 +133,15 @@ export default class AiTasksBoardPlugin extends Plugin {
             .setIcon("wand-2")
             .onClick(() => {
               new AiTasksDraftModal(this, { mode: "auto", selection: sel, sourcePath: view.file?.path }).open();
+            });
+        });
+
+        menu.addItem((item) => {
+          item
+            .setTitle("AI Tasks: Import selection as tasks (AI)")
+            .setIcon("list-plus")
+            .onClick(() => {
+              new AiTasksBulkImportModal(this, { selection: sel, sourcePath: view.file?.path }).open();
             });
         });
       })
@@ -163,6 +182,25 @@ export default class AiTasksBoardPlugin extends Plugin {
       top_p: this.settings.modelTopP,
     };
     return cfg;
+  }
+
+  getTagPresets(): string[] {
+    const raw = (this.settings.tagPresets || "").replace(/\r\n/g, "\n");
+    const parts = raw
+      .split(/\n|[,，]/g)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    // Dedup while preserving order.
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const p of parts) {
+      const key = p.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+    return out;
   }
 
   async startRuntime(): Promise<void> {
@@ -279,4 +317,3 @@ export default class AiTasksBoardPlugin extends Plugin {
     }
   }
 }
-

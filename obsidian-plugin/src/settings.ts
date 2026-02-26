@@ -17,6 +17,7 @@ export type AiTasksBoardSettings = {
   boardPath: string;
   archiveFolderPath: string;
   runtimeUrl: string;
+  tagPresets: string;
   runtimeCommand: string;
   runtimeArgs: string;
   runtimeCwd: string;
@@ -34,6 +35,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   boardPath: "Tasks/Boards/Board.md",
   archiveFolderPath: "Archive",
   runtimeUrl: "http://127.0.0.1:17890",
+  tagPresets: "work\n学习\n效率\n运维\nopenclaw\nobsidian\npixel",
   runtimeCommand: "ai-tasks-runtime",
   runtimeArgs: "serve",
   runtimeCwd: "",
@@ -98,6 +100,19 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.archiveFolderPath)
           .onChange(async (value) => {
             this.plugin.settings.archiveFolderPath = value.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Tag presets")
+      .setDesc("One tag per line. AI will prefer these tags when proposing/importing tasks.")
+      .addTextArea((text) => {
+        text
+          .setPlaceholder("work\\n学习\\n效率\\nopenclaw")
+          .setValue(this.plugin.settings.tagPresets || "")
+          .onChange(async (value) => {
+            this.plugin.settings.tagPresets = value;
             await this.plugin.saveSettings();
           });
       });
