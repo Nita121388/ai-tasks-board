@@ -105,7 +105,7 @@ export class BoardPanel {
     return matchesSearch(t, this.searchText);
   }
 
-  private renderHeader(root: HTMLElement, allTags: string[]): void {
+  private renderHeader(root: HTMLElement, allTags: string[], viewMode: "kanban" | "split" | "md"): void {
     const header = root.createDiv({ cls: "ai-tasks-board-header" });
 
     const left = header.createDiv({ cls: "ai-tasks-board-header-left" });
@@ -113,22 +113,15 @@ export class BoardPanel {
 
     const controls = header.createDiv({ cls: "ai-tasks-board-controls" });
 
-    const layoutBox = controls.createDiv({ cls: "ai-tasks-board-layout" });
-    const splitBtn = layoutBox.createEl("button", { text: "Split", cls: "ai-tasks-layout-btn" });
-    const kanbanBtn = layoutBox.createEl("button", { text: "Kanban", cls: "ai-tasks-layout-btn" });
-    const layout = this.plugin.settings.boardLayout === "kanban" ? "kanban" : "split";
-    if (layout === "split") splitBtn.classList.add("is-active");
-    else kanbanBtn.classList.add("is-active");
-    splitBtn.addEventListener("click", () => {
+    const viewSelect = controls.createEl("select", { cls: "ai-tasks-board-view-select" });
+    viewSelect.add(new Option("Kanban", "kanban"));
+    viewSelect.add(new Option("Kan Detail", "split"));
+    viewSelect.add(new Option("MD", "md"));
+    viewSelect.value = viewMode;
+    viewSelect.addEventListener("change", () => {
       void (async () => {
-        this.plugin.settings.boardLayout = "split";
-        await this.plugin.saveSettings();
-        await this.render(root);
-      })();
-    });
-    kanbanBtn.addEventListener("click", () => {
-      void (async () => {
-        this.plugin.settings.boardLayout = "kanban";
+        const v = viewSelect.value as "kanban" | "split" | "md";
+        this.plugin.settings.boardLayout = v;
         await this.plugin.saveSettings();
         await this.render(root);
       })();
@@ -138,6 +131,8 @@ export class BoardPanel {
     importBtn.addEventListener("click", () => {
       new AiTasksBulkImportModal(this.plugin, { selection: "", sourcePath: this.boardFile.path }).open();
     });
+
+    if (viewMode === "md") return;
 
     const search = controls.createEl("input", {
       type: "search",
@@ -364,6 +359,13 @@ export class BoardPanel {
     root.addClass("ai-tasks-board-root");
     root.addClass("ai-tasks-board-inline");
 
+    const viewMode =
+      this.plugin.settings.boardLayout === "kanban"
+        ? "kanban"
+        : this.plugin.settings.boardLayout === "md"
+          ? "md"
+          : "split";
+
     let content: string;
     try {
       content = await this.readBoardNormalized();
@@ -373,20 +375,44 @@ export class BoardPanel {
       return;
     }
 
+    if (viewMode === "md") {
+      this.renderHeader(root, [], viewMode);
+
+      const box = root.createDiv({ cls: "ai-tasks-md-root" });
+      const actions = box.createDiv({ cls: "ai-tasks-md-actions" });
+      const reloadBtn = actions.createEl("button", { text: "Reload" });
+      const saveBtn = actions.createEl("button", { text: "Save", cls: "mod-cta" });
+
+      const textarea = box.createEl("textarea", { cls: "ai-tasks-md-textarea" });
+      textarea.value = content;
+
+      reloadBtn.addEventListener("click", () => void this.render(root));
+      saveBtn.addEventListener("click", () => {
+        void (async () => {
+          await writeWithHistory(this.plugin.app.vault, this.boardFile, textarea.value.replace(/\r\n/g, "\n"));
+          await appendAiTasksLog(this.plugin, { type: "board.write", via: "md_view" });
+          new Notice("AI Tasks: saved Board.md (history snapshot created).");
+          await this.render(root);
+        })();
+      });
+      return;
+    }
+
     let parsed;
     try {
       parsed = parseBoard(content);
     } catch (e) {
+      // Still render the header so user can switch to MD view to fix formatting.
+      this.renderHeader(root, [], viewMode);
       const err = root.createDiv({ cls: "ai-tasks-board-error" });
-      err.createDiv({
-        text: e instanceof Error ? e.message : "Failed to parse Board.md (unknown error).",
-      });
+      err.createDiv({ text: e instanceof Error ? e.message : "Failed to parse Board.md (unknown error)." });
+      err.createDiv({ text: "Tip: switch view to MD to edit/fix the file." });
       return;
     }
 
     const allTasks = Array.from(parsed.sections.values()).flatMap((s) => s.tasks);
     const allTags = extractAllTags(allTasks);
-    this.renderHeader(root, allTags);
+    this.renderHeader(root, allTags, viewMode);
 
     const onMove = async (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => {
       const current = await this.readBoardNormalized();
@@ -435,8 +461,7 @@ export class BoardPanel {
       }).open();
     };
 
-    const layout = this.plugin.settings.boardLayout === "kanban" ? "kanban" : "split";
-    if (layout === "kanban") {
+    if (viewMode === "kanban") {
       const columns = root.createDiv({ cls: "ai-tasks-board-columns" });
       for (const status of STATUSES) {
         const col = columns.createDiv({ cls: "ai-tasks-column" });

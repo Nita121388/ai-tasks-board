@@ -30,6 +30,10 @@
   justify-content: flex-end;
 }
 
+.ai-tasks-board-view-select {
+  min-width: 140px;
+}
+
 .ai-tasks-board-layout {
   display: inline-flex;
   align-items: center;
@@ -400,6 +404,32 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
   background: var(--background-secondary);
+}
+
+.ai-tasks-md-root {
+  margin-top: 10px;
+}
+
+.ai-tasks-md-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ai-tasks-md-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 65vh;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  resize: vertical;
 }
 
 /* Board note overlay (editor + reading mode) */

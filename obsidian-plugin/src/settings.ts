@@ -13,7 +13,7 @@ export type AiModelConfig = {
   top_p?: number;
 };
 
-export type BoardLayout = "kanban" | "split";
+export type BoardLayout = "kanban" | "split" | "md";
 
 export type AiTasksBoardSettings = {
   boardPath: string;
@@ -97,10 +97,11 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Board layout")
-      .setDesc("Default layout for the in-note board UI.")
+      .setDesc("Default view for the in-note board UI.")
       .addDropdown((dropdown) => {
         dropdown.addOption("split", "Split (list + detail)");
         dropdown.addOption("kanban", "Kanban (columns)");
+        dropdown.addOption("md", "MD (raw editor)");
         dropdown.setValue(this.plugin.settings.boardLayout || "split");
         dropdown.onChange(async (value) => {
           this.plugin.settings.boardLayout = value as BoardLayout;
