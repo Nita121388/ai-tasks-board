@@ -130,27 +130,36 @@ jobs:
             platform: linux
             arch: x64
             exe: ai-tasks-runtime
+            python_arch: x64
           - os: windows-latest
             platform: win32
             arch: x64
             exe: ai-tasks-runtime.exe
-          - os: macos-13
-            platform: darwin
-            arch: x64
-            exe: ai-tasks-runtime
+            python_arch: x64
           - os: macos-14
             platform: darwin
             arch: arm64
             exe: ai-tasks-runtime
+            python_arch: arm64
+          - os: macos-14
+            platform: darwin
+            arch: x64
+            exe: ai-tasks-runtime
+            python_arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Rosetta (macOS x64 build)
+        if: runner.os == 'macOS' && matrix.python_arch == 'x64'
+        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          architecture: "${{ matrix.python_arch }}"
 
       - name: Sync versions (manifest/pyproject)
         run: python scripts/ai_tasks_board_bump_version.py "${{ needs.meta.outputs.version }}"
