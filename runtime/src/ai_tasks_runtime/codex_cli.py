@@ -54,6 +54,7 @@ def run_codex_exec(
     args: Optional[List[str]] = None,
     cwd: Optional[Path] = None,
     timeout_s: int = 120,
+    request_id: Optional[str] = None,
 ) -> CodexExecResult:
     """Run `codex exec --json` and return the last agent_message text.
 
@@ -66,17 +67,21 @@ def run_codex_exec(
         raise ValueError("args must be provided (include `exec --json ... -`)")
 
     resolved = _resolve_codex_bin(codex_bin)
+    rid = (request_id or "").strip() or "-"
     logger.info(
-        "codex-cli exec start bin=%s resolved=%s cwd=%s timeout_s=%s",
+        "rid=%s codex-cli exec start bin=%s resolved=%s cwd=%s timeout_s=%s prompt_chars=%s",
+        rid,
         codex_bin,
         resolved,
         str(cwd) if cwd is not None else "",
         timeout_s,
+        len(prompt or ""),
     )
+    logger.debug("rid=%s codex-cli argv=%s", rid, [resolved or codex_bin, *(args or [])])
 
     try:
         proc = subprocess.run(
-            [codex_bin, *args],
+            [resolved or codex_bin, *args],
             input=prompt.encode("utf-8"),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -86,7 +91,8 @@ def run_codex_exec(
         )
     except FileNotFoundError:
         logger.error(
-            "codex-cli exec failed: file not found (bin=%s resolved=%s cwd=%s)",
+            "rid=%s codex-cli exec failed: file not found (bin=%s resolved=%s cwd=%s)",
+            rid,
             codex_bin,
             resolved,
             str(cwd) if cwd is not None else "",
@@ -94,7 +100,8 @@ def run_codex_exec(
         raise
     except Exception:
         logger.exception(
-            "codex-cli exec failed: unexpected error (bin=%s resolved=%s cwd=%s)",
+            "rid=%s codex-cli exec failed: unexpected error (bin=%s resolved=%s cwd=%s)",
+            rid,
             codex_bin,
             resolved,
             str(cwd) if cwd is not None else "",
@@ -106,14 +113,20 @@ def run_codex_exec(
     events = _iter_jsonl_lines(stdout)
 
     logger.info(
-        "codex-cli exec done code=%s stdout_bytes=%s stderr_bytes=%s",
+        "rid=%s codex-cli exec done code=%s stdout_bytes=%s stderr_bytes=%s",
+        rid,
         proc.returncode,
         len(proc.stdout or b""),
         len(proc.stderr or b""),
     )
 
     if proc.returncode != 0:
-        raise RuntimeError(f"codex exec failed (code={proc.returncode}). stderr={stderr.strip()}")
+        err = (stderr or "").strip()
+        snip = err
+        if len(snip) > 800:
+            snip = snip[:800] + "...[truncated]"
+        logger.error("rid=%s codex-cli exec nonzero exit code=%s stderr_snip=%r", rid, proc.returncode, snip)
+        raise RuntimeError(f"codex exec failed (code={proc.returncode}). stderr={snip}")
 
     thread_id: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
@@ -135,4 +148,3 @@ def run_codex_exec(
         raise RuntimeError(f"codex exec produced no agent_message. tail_events={tail!r}")
 
     return CodexExecResult(text=last_text, usage=usage, thread_id=thread_id, raw_events=events)
-

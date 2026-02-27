@@ -4,6 +4,7 @@ import type { AiModelConfig } from "./settings";
 import { insertTaskBlock, moveTaskBlock, normalizeEscapedNewlines, parseBoard, replaceTaskBlock } from "./board";
 import { appendAiTasksLog } from "./ai_log";
 import { ensureFolder, writeWithHistory } from "./board_fs";
+import { RuntimeHttpError, randomRequestId, runtimeRequestJson } from "./runtime_http";
 import type { BoardStatus } from "./types";
 
 type ProposeMode = "auto" | "create" | "update";
@@ -106,27 +107,6 @@ async function getOrCreateBoardFile(plugin: AiTasksBoardPlugin): Promise<TFile> 
   const parent = boardPath.split("/").slice(0, -1).join("/");
   if (parent) await ensureFolder(plugin.app.vault, parent);
   return await plugin.app.vault.create(boardPath, buildDefaultBoardMarkdown());
-}
-
-function joinUrl(base: string, path: string): string {
-  return base.replace(/\/+$/g, "") + path;
-}
-
-async function callRuntimePropose(
-  plugin: AiTasksBoardPlugin,
-  req: BoardProposeRequest
-): Promise<BoardProposeResponse> {
-  const url = joinUrl(plugin.settings.runtimeUrl, "/v1/board/propose");
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`Runtime error (${resp.status}): ${text}`);
-  }
-  return (await resp.json()) as BoardProposeResponse;
 }
 
 function asCalloutLines(text: string): string[] {
@@ -330,8 +310,10 @@ export class AiTasksDraftModal extends Modal {
         tag_presets: this.plugin.getTagPresets(),
       };
 
+      const requestId = randomRequestId();
       await appendAiTasksLog(this.plugin, {
         type: "board.propose.request",
+        request_id: requestId,
         mode: req.mode,
         draft_len: req.draft.length,
         instruction_len: (req.instruction ?? "").length,
@@ -342,9 +324,19 @@ export class AiTasksDraftModal extends Modal {
       });
 
       try {
-        this.proposal = await callRuntimePropose(this.plugin, req);
+        const resp = await runtimeRequestJson<BoardProposeResponse>(this.plugin, {
+          path: "/v1/board/propose",
+          method: "POST",
+          body: req,
+          request_id: requestId,
+        });
+        this.proposal = resp.json;
         await appendAiTasksLog(this.plugin, {
           type: "board.propose.response",
+          request_id: resp.meta.request_id,
+          latency_ms: resp.meta.latency_ms,
+          http_status: resp.meta.http_status,
+          response_text_len: resp.meta.response_text_len,
           engine: this.proposal.engine ?? null,
           provider: this.proposal.provider ?? null,
           thread_id: this.proposal.thread_id ?? null,
@@ -358,8 +350,13 @@ export class AiTasksDraftModal extends Modal {
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        const meta = e instanceof RuntimeHttpError ? e.meta : null;
         await appendAiTasksLog(this.plugin, {
           type: "board.propose.error",
+          request_id: meta?.request_id ?? requestId,
+          latency_ms: meta?.latency_ms ?? null,
+          http_status: meta?.http_status ?? null,
+          response_snip: meta?.response_snip ?? null,
           error: msg,
         });
         throw e;

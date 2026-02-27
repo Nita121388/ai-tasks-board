@@ -4,6 +4,7 @@ import type { AiModelConfig } from "./settings";
 import { insertTaskBlock, normalizeEscapedNewlines, parseBoard } from "./board";
 import { appendAiTasksLog } from "./ai_log";
 import { ensureFolder, writeWithHistory } from "./board_fs";
+import { RuntimeHttpError, randomRequestId, runtimeRequestJson } from "./runtime_http";
 import type { BoardStatus } from "./types";
 
 type SplitTask = {
@@ -85,24 +86,6 @@ async function getOrCreateBoardFile(plugin: AiTasksBoardPlugin): Promise<TFile> 
   const parent = boardPath.split("/").slice(0, -1).join("/");
   if (parent) await ensureFolder(plugin.app.vault, parent);
   return await plugin.app.vault.create(boardPath, buildDefaultBoardMarkdown());
-}
-
-function joinUrl(base: string, path: string): string {
-  return base.replace(/\/+$/g, "") + path;
-}
-
-async function callRuntimeSplit(plugin: AiTasksBoardPlugin, req: BoardSplitRequest): Promise<BoardSplitResponse> {
-  const url = joinUrl(plugin.settings.runtimeUrl, "/v1/board/split");
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`Runtime error (${resp.status}): ${text}`);
-  }
-  return (await resp.json()) as BoardSplitResponse;
 }
 
 function asCalloutLines(text: string): string[] {
@@ -248,8 +231,10 @@ export class AiTasksBulkImportModal extends Modal {
         ai_model: this.plugin.getModelConfig(),
       };
 
+      const requestId = randomRequestId();
       await appendAiTasksLog(this.plugin, {
         type: "board.split.request",
+        request_id: requestId,
         text_len: req.text.length,
         instruction_len: (req.instruction ?? "").length,
         tag_presets_count: req.tag_presets?.length ?? 0,
@@ -257,7 +242,13 @@ export class AiTasksBulkImportModal extends Modal {
         runtime_url: this.plugin.settings.runtimeUrl,
       });
 
-      const resp = await callRuntimeSplit(this.plugin, req);
+      const respRaw = await runtimeRequestJson<BoardSplitResponse>(this.plugin, {
+        path: "/v1/board/split",
+        method: "POST",
+        body: req,
+        request_id: requestId,
+      });
+      const resp = respRaw.json;
       this.tasks = Array.isArray(resp.tasks) ? resp.tasks.slice(0, Math.max(1, req.max_tasks ?? 60)) : [];
       this.proposalMeta = {
         engine: resp.engine ?? null,
@@ -270,6 +261,10 @@ export class AiTasksBulkImportModal extends Modal {
 
       await appendAiTasksLog(this.plugin, {
         type: "board.split.response",
+        request_id: respRaw.meta.request_id,
+        latency_ms: respRaw.meta.latency_ms,
+        http_status: respRaw.meta.http_status,
+        response_text_len: respRaw.meta.response_text_len,
         engine: resp.engine ?? null,
         provider: resp.provider ?? null,
         thread_id: resp.thread_id ?? null,
@@ -290,6 +285,15 @@ export class AiTasksBulkImportModal extends Modal {
       this.setStatus(meta.length ? meta.join(" | ") : this.plugin.t("bulk_modal.status.ready", { count: this.tasks.length }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      const meta = e instanceof RuntimeHttpError ? e.meta : null;
+      await appendAiTasksLog(this.plugin, {
+        type: "board.split.error",
+        request_id: meta?.request_id ?? null,
+        latency_ms: meta?.latency_ms ?? null,
+        http_status: meta?.http_status ?? null,
+        response_snip: meta?.response_snip ?? null,
+        error: msg,
+      });
       this.setStatus(this.plugin.t("bulk_modal.status.failed", { error: msg }));
       new Notice(this.plugin.t("bulk_modal.notice.generate_failed", { error: msg }));
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Optional
 
 import typer
 
+from ai_tasks_runtime import __version__
 from ai_tasks_runtime.agent_heartbeat import run_heartbeat_once
 from ai_tasks_runtime.agent_workspace import (
     AgentFile,
@@ -19,10 +21,14 @@ from ai_tasks_runtime.agent_workspace import (
 from ai_tasks_runtime.agno_agent import run_agent_text
 from ai_tasks_runtime.config import settings
 from ai_tasks_runtime.codex_cli import run_codex_exec
+from ai_tasks_runtime.logging_setup import configure_logging
 from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.sessions import ensure_sessions_state, load_sessions_state, sync_codex_sessions
 from ai_tasks_runtime.tools.board_toolkit import BoardToolkit
 
+
+configure_logging(settings.log_level)
+logger = logging.getLogger("ai_tasks_runtime")
 
 app = typer.Typer(no_args_is_help=True)
 sessions_app = typer.Typer(no_args_is_help=True)
@@ -38,12 +44,22 @@ def serve(host: Optional[str] = None, port: Optional[int] = None) -> None:
     """Run the local HTTP runtime."""
     import uvicorn
 
+    logger.info(
+        "runtime serve start version=%s host=%s port=%s agent_dir=%s codex_bin=%s log_level=%s",
+        __version__,
+        host or settings.host,
+        port or settings.port,
+        str(settings.agent_dir),
+        settings.codex_bin,
+        settings.log_level,
+    )
+
     uvicorn.run(
         "ai_tasks_runtime.app:app",
         host=host or settings.host,
         port=port or settings.port,
         reload=False,
-        log_level="info",
+        log_level=settings.log_level,
     )
 
 

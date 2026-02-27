@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 17890
 
+    # Logging
+    # - "info" keeps runtime logs readable for end users.
+    # - Set AI_TASKS_LOG_LEVEL=debug for deeper diagnostics.
+    log_level: str = "info"
+
     # Agent workspace directory (SOUL.md, MEMORY.md, HEARTBEAT.md, etc.)
     agent_dir: Path = Field(default_factory=_default_agent_dir)
 

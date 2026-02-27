@@ -9,12 +9,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from pydantic import BaseModel
 
+from ai_tasks_runtime import __version__
 from ai_tasks_runtime.agent_workspace import (
     append_daily_memory,
     build_agent_context_prelude,
@@ -28,7 +30,7 @@ from ai_tasks_runtime.prompts import render_prompt
 from ai_tasks_runtime.tools.board_toolkit import BoardToolkit
 
 
-app = FastAPI(title="AI Tasks Runtime", version="0.0.0")
+app = FastAPI(title="AI Tasks Runtime", version=__version__)
 STARTED_AT = time.time()
 logger = logging.getLogger("ai_tasks_runtime")
 
@@ -155,9 +157,20 @@ class RuntimeShutdownRequest(BaseModel):
     force: bool = False
 
 
+def _get_request_id(request: Request) -> str:
+    rid = (request.headers.get("x-request-id") or "").strip()
+    if rid:
+        return rid[:80]
+    return str(uuid4())
+
+
+def _latency_ms(started_at: float) -> int:
+    return max(0, int((time.time() - started_at) * 1000))
+
+
 @app.get("/v1/health")
 def health() -> Dict[str, Any]:
-    return {"ok": True, "service": "ai-tasks-runtime", "version": "0.0.0"}
+    return {"ok": True, "service": "ai-tasks-runtime", "version": __version__}
 
 
 @app.get("/v1/runtime/status")
@@ -165,14 +178,17 @@ def runtime_status() -> Dict[str, Any]:
     return {
         "ok": True,
         "service": "ai-tasks-runtime",
-        "version": "0.0.0",
+        "version": __version__,
         "pid": os.getpid(),
         "uptime_s": max(0.0, time.time() - STARTED_AT),
     }
 
 
 @app.post("/v1/runtime/shutdown")
-def runtime_shutdown(req: RuntimeShutdownRequest) -> Dict[str, Any]:
+def runtime_shutdown(req: RuntimeShutdownRequest, request: Request) -> Dict[str, Any]:
+    rid = _get_request_id(request)
+    logger.info("rid=%s runtime_shutdown requested force=%s", rid, bool(req.force))
+
     def _do_shutdown() -> None:
         try:
             if req.force:
@@ -186,12 +202,23 @@ def runtime_shutdown(req: RuntimeShutdownRequest) -> Dict[str, Any]:
 
 
 @app.post("/v1/codex/exec", response_model=CodexExecResponse)
-def codex_exec(req: CodexExecRequest) -> CodexExecResponse:
+def codex_exec(req: CodexExecRequest, request: Request) -> CodexExecResponse:
+    rid = _get_request_id(request)
+    started_at = time.time()
+
     cwd: Optional[Path] = None
     if req.cwd:
         cwd = Path(req.cwd).expanduser().resolve()
     elif settings.codex_cwd is not None:
         cwd = settings.codex_cwd
+
+    logger.info(
+        "rid=%s codex_exec start prompt_len=%s timeout_s=%s cwd=%s",
+        rid,
+        len(req.prompt or ""),
+        req.timeout_s,
+        str(cwd) if cwd is not None else "",
+    )
 
     result = run_codex_exec(
         req.prompt,
@@ -199,13 +226,34 @@ def codex_exec(req: CodexExecRequest) -> CodexExecResponse:
         args=settings.codex_default_args,
         cwd=cwd,
         timeout_s=req.timeout_s,
+        request_id=rid,
     )
-    return CodexExecResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+    out = CodexExecResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+
+    logger.info(
+        "rid=%s codex_exec done thread_id=%s latency_ms=%s text_len=%s",
+        rid,
+        out.thread_id or "",
+        _latency_ms(started_at),
+        len(out.text or ""),
+    )
+    return out
 
 
 @app.post("/v1/agent/ask", response_model=AgentAskResponse)
-def agent_ask(req: AgentAskRequest) -> AgentAskResponse:
+def agent_ask(req: AgentAskRequest, request: Request) -> AgentAskResponse:
     """Lightweight Agent endpoint: inject SOUL/USER/MEMORY context and call Codex CLI."""
+
+    rid = _get_request_id(request)
+    started_at = time.time()
+    logger.info(
+        "rid=%s agent_ask start prompt_len=%s include_memory=%s record_memory=%s timeout_s=%s",
+        rid,
+        len(req.prompt or ""),
+        bool(req.include_memory),
+        bool(req.record_memory),
+        req.timeout_s,
+    )
 
     agent_dir = settings.agent_dir
     ensure_agent_workspace(agent_dir, force=False)
@@ -233,7 +281,15 @@ def agent_ask(req: AgentAskRequest) -> AgentAskResponse:
             text = text[:1200] + "\n...[truncated]..."
         append_daily_memory(agent_dir, f"Agent ask (HTTP)\n\nUser:\n{(req.prompt or '').strip()}\n\nAssistant:\n{text}")
 
-    return AgentAskResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+    out = AgentAskResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+    logger.info(
+        "rid=%s agent_ask done thread_id=%s latency_ms=%s text_len=%s",
+        rid,
+        out.thread_id or "",
+        _latency_ms(started_at),
+        len(out.text or ""),
+    )
+    return out
 
 
 def _first_non_empty_line(text: str) -> str:
@@ -724,9 +780,19 @@ def _heuristic_propose(req: BoardProposeRequest) -> BoardProposeResponse:
 
 
 @app.post("/v1/board/propose", response_model=BoardProposeResponse)
-def board_propose(req: BoardProposeRequest) -> BoardProposeResponse:
+def board_propose(req: BoardProposeRequest, request: Request) -> BoardProposeResponse:
     # Try AI first; fall back to deterministic heuristics.
+    rid = _get_request_id(request)
+    started_at = time.time()
     cfg = _normalize_model_config(req)
+    logger.info(
+        "rid=%s board_propose start provider=%s mode=%s draft_len=%s tasks_count=%s",
+        rid,
+        cfg.provider,
+        req.mode,
+        len(req.draft or ""),
+        len(req.tasks or []),
+    )
     ai_fallback: Optional[str] = None
     try:
         if cfg.provider == "openai-compatible":
@@ -738,24 +804,53 @@ def board_propose(req: BoardProposeRequest) -> BoardProposeResponse:
             if req.mode == "create" and proposed.action == "update":
                 proposed.action = "create"
                 proposed.target_uuid = None
+            logger.info(
+                "rid=%s board_propose done engine=%s provider=%s action=%s thread_id=%s ai_fallback=%s latency_ms=%s",
+                rid,
+                proposed.engine,
+                proposed.provider or "",
+                proposed.action,
+                proposed.thread_id or "",
+                proposed.ai_fallback or "",
+                _latency_ms(started_at),
+            )
             return proposed
     except Exception as exc:
         detail = _sanitize_error_message(str(exc))
         ai_fallback = f"exception:{type(exc).__name__}" + (f":{detail}" if detail else "")
-        logger.exception("board_propose failed; falling back to heuristic", exc_info=exc)
+        logger.exception("rid=%s board_propose failed; falling back to heuristic", rid)
     else:
         ai_fallback = "no_valid_json"
 
     out = _heuristic_propose(req)
     out.ai_fallback = ai_fallback
     out.provider = cfg.provider
+    logger.info(
+        "rid=%s board_propose done engine=%s provider=%s action=%s thread_id=%s ai_fallback=%s latency_ms=%s",
+        rid,
+        out.engine,
+        out.provider or "",
+        out.action,
+        out.thread_id or "",
+        out.ai_fallback or "",
+        _latency_ms(started_at),
+    )
     return out
 
 
 @app.post("/v1/board/split", response_model=BoardSplitResponse)
-def board_split(req: BoardSplitRequest) -> BoardSplitResponse:
+def board_split(req: BoardSplitRequest, request: Request) -> BoardSplitResponse:
+    rid = _get_request_id(request)
+    started_at = time.time()
     cfg = req.ai_model or ModelConfig()
     ai_fallback: Optional[str] = None
+    logger.info(
+        "rid=%s board_split start provider=%s text_len=%s max_tasks=%s",
+        rid,
+        cfg.provider,
+        len(req.text or ""),
+        req.max_tasks,
+    )
 
     try:
         if cfg.provider == "openai-compatible":
@@ -763,26 +858,58 @@ def board_split(req: BoardSplitRequest) -> BoardSplitResponse:
         else:
             proposed = _codex_split(req)
         if proposed is not None:
+            logger.info(
+                "rid=%s board_split done engine=%s provider=%s thread_id=%s ai_fallback=%s tasks_count=%s latency_ms=%s",
+                rid,
+                proposed.engine,
+                proposed.provider or "",
+                proposed.thread_id or "",
+                proposed.ai_fallback or "",
+                len(proposed.tasks or []),
+                _latency_ms(started_at),
+            )
             return proposed
     except Exception as exc:
         detail = _sanitize_error_message(str(exc))
         ai_fallback = f"exception:{type(exc).__name__}" + (f":{detail}" if detail else "")
-        logger.exception("board_split failed; falling back to heuristic", exc_info=exc)
+        logger.exception("rid=%s board_split failed; falling back to heuristic", rid)
     else:
         ai_fallback = "no_valid_json"
 
     out = _heuristic_split(req)
     out.ai_fallback = ai_fallback
     out.provider = cfg.provider
+    logger.info(
+        "rid=%s board_split done engine=%s provider=%s thread_id=%s ai_fallback=%s tasks_count=%s latency_ms=%s",
+        rid,
+        out.engine,
+        out.provider or "",
+        out.thread_id or "",
+        out.ai_fallback or "",
+        len(out.tasks or []),
+        _latency_ms(started_at),
+    )
     return out
 
 
 @app.post("/v1/board/agent/apply", response_model=BoardAgentApplyResponse)
-def board_agent_apply(req: BoardAgentApplyRequest) -> BoardAgentApplyResponse:
+def board_agent_apply(req: BoardAgentApplyRequest, request: Request) -> BoardAgentApplyResponse:
     """Agentic tool-calling flow: apply a draft to Board.md via BoardToolkit tools.
 
     This endpoint writes to the vault on disk and snapshots history before modifications.
     """
+
+    rid = _get_request_id(request)
+    started_at = time.time()
+    logger.info(
+        "rid=%s board_agent_apply start vault=%s board_path=%s mode=%s draft_len=%s timeout_s=%s",
+        rid,
+        (req.vault or "").strip(),
+        (req.board_path or "").strip(),
+        req.mode,
+        len(req.draft or ""),
+        req.timeout_s,
+    )
 
     vault_dir = Path(req.vault).expanduser().resolve()
     if not vault_dir.exists():
@@ -810,4 +937,12 @@ def board_agent_apply(req: BoardAgentApplyRequest) -> BoardAgentApplyResponse:
 
     toolkit = BoardToolkit(vault_dir=vault_dir, board_rel_path=req.board_path)
     result = run_agent_text(prompt, timeout_s=req.timeout_s, cwd=settings.codex_cwd, tools=[toolkit])
-    return BoardAgentApplyResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+    out = BoardAgentApplyResponse(text=result.text, thread_id=result.thread_id, usage=result.usage)
+    logger.info(
+        "rid=%s board_agent_apply done thread_id=%s latency_ms=%s text_len=%s",
+        rid,
+        out.thread_id or "",
+        _latency_ms(started_at),
+        len(out.text or ""),
+    )
+    return out

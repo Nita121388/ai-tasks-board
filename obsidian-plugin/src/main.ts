@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { appendAiTasksLog } from "./ai_log";
 import { AiTasksBoardSettingTab, DEFAULT_SETTINGS, type AiModelConfig, type AiTasksBoardSettings } from "./settings";
 import { AiTasksDraftModal } from "./draft_modal";
 import { AiTasksBulkImportModal } from "./bulk_import_modal";
@@ -10,6 +11,7 @@ import { ensureFolder } from "./board_fs";
 import { BoardNoteOverlayManager } from "./board_note_overlay";
 import { AiTasksDiagnosticsModal, type DiagnosticsResult } from "./diagnostics_modal";
 import { resolveLanguage, t as translate, type I18nKey, type ResolvedLanguage, type TemplateVars } from "./i18n";
+import { RuntimeHttpError, randomRequestId, runtimeRequestJson } from "./runtime_http";
 
 type RuntimeStatusResponse = {
   ok?: boolean;
@@ -322,11 +324,22 @@ export default class AiTasksBoardPlugin extends Plugin {
   async startRuntime(): Promise<void> {
     const online = await this.fetchRuntimeStatus();
     if (online?.ok) {
+      void appendAiTasksLog(this, {
+        type: "runtime.start.skip.online",
+        runtime_url: this.settings.runtimeUrl,
+        pid: online.pid ?? null,
+        version: online.version ?? null,
+      });
       new Notice(this.t("notice.runtime.already_online"));
       return;
     }
 
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
+      void appendAiTasksLog(this, {
+        type: "runtime.start.skip.running",
+        runtime_url: this.settings.runtimeUrl,
+        pid: this.runtimePid ?? null,
+      });
       new Notice(this.t("notice.runtime.already_running"));
       return;
     }
@@ -380,6 +393,20 @@ export default class AiTasksBoardPlugin extends Plugin {
       env.AI_TASKS_CODEX_BIN = codexBin;
     }
 
+    void appendAiTasksLog(this, {
+      type: "runtime.start.request",
+      runtime_url: this.settings.runtimeUrl,
+      cmd,
+      args,
+      cwd: cwd ?? null,
+      bundled_cmd: bundledCmd ?? null,
+      used_bundled_cmd: bundledCmd ? cmd === bundledCmd : null,
+      host: urlInfo?.host ?? null,
+      port: urlInfo?.port ?? null,
+      agent_dir: agentDir ?? null,
+      codex_bin: codexBin ?? null,
+    });
+
     try {
       const child = spawn(cmd, args, {
         cwd,
@@ -391,34 +418,71 @@ export default class AiTasksBoardPlugin extends Plugin {
       this.runtimePid = child.pid ?? null;
 
       const logDir = this.getPluginDir();
+      let stdoutPath: string | null = null;
+      let stderrPath: string | null = null;
       if (logDir) {
         try {
           mkdirSync(logDir, { recursive: true });
-          const stdoutPath = join(logDir, "runtime.stdout.log");
-          const stderrPath = join(logDir, "runtime.stderr.log");
+          stdoutPath = join(logDir, "runtime.stdout.log");
+          stderrPath = join(logDir, "runtime.stderr.log");
           child.stdout?.on("data", (buf) => {
-            appendFileSync(stdoutPath, buf.toString());
+            if (stdoutPath) appendFileSync(stdoutPath, buf.toString());
           });
           child.stderr?.on("data", (buf) => {
-            appendFileSync(stderrPath, buf.toString());
+            if (stderrPath) appendFileSync(stderrPath, buf.toString());
           });
           console.info(`[ai-tasks-board] runtime logs: ${stdoutPath} / ${stderrPath}`);
         } catch (e) {
           console.error("[ai-tasks-board] failed to init runtime log files", e);
+          void appendAiTasksLog(this, {
+            type: "runtime.start.logfiles_error",
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
 
-      child.on("exit", () => {
+      void appendAiTasksLog(this, {
+        type: "runtime.start.spawned",
+        pid: child.pid ?? null,
+        stdout_log: stdoutPath,
+        stderr_log: stderrPath,
+      });
+
+      child.on("exit", (code, signal) => {
+        void appendAiTasksLog(this, {
+          type: "runtime.process.exit",
+          pid: child.pid ?? null,
+          code: code ?? null,
+          signal: signal ?? null,
+        });
         this.runtimeProcess = null;
         this.runtimePid = null;
       });
       child.on("error", (err) => {
+        void appendAiTasksLog(this, {
+          type: "runtime.process.error",
+          pid: child.pid ?? null,
+          error: err instanceof Error ? err.message : String(err),
+          // NodeJS.ErrnoException fields (best-effort).
+          code: (err as unknown as { code?: string }).code ?? null,
+          errno: (err as unknown as { errno?: number }).errno ?? null,
+          syscall: (err as unknown as { syscall?: string }).syscall ?? null,
+          path: (err as unknown as { path?: string }).path ?? null,
+        });
         new Notice(this.t("notice.runtime.start_failed", { error: err.message }));
       });
 
       new Notice(child.pid ? this.t("notice.runtime.starting_pid", { pid: child.pid }) : this.t("notice.runtime.starting"));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      void appendAiTasksLog(this, {
+        type: "runtime.start.exception",
+        runtime_url: this.settings.runtimeUrl,
+        cmd,
+        args,
+        cwd: cwd ?? null,
+        error: msg,
+      });
       new Notice(this.t("notice.runtime.start_failed", { error: msg }));
     }
   }
@@ -426,18 +490,27 @@ export default class AiTasksBoardPlugin extends Plugin {
   async stopRuntime(): Promise<void> {
     let requested = false;
 
+    void appendAiTasksLog(this, {
+      type: "runtime.stop.request",
+      runtime_url: this.settings.runtimeUrl,
+      pid: this.runtimePid ?? null,
+    });
+
     if (await this.requestRuntimeShutdown()) {
       requested = true;
     }
 
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
       this.runtimeProcess.kill();
+      void appendAiTasksLog(this, { type: "runtime.stop.killed", pid: this.runtimePid ?? null });
       requested = true;
     }
 
     if (requested) {
+      void appendAiTasksLog(this, { type: "runtime.stop.done", ok: true });
       new Notice(this.t("notice.runtime.stop_requested"));
     } else {
+      void appendAiTasksLog(this, { type: "runtime.stop.done", ok: false });
       new Notice(this.t("notice.runtime.not_running"));
     }
   }
@@ -456,7 +529,7 @@ export default class AiTasksBoardPlugin extends Plugin {
       tag_presets: this.getTagPresets(),
     };
 
-    const started = Date.now();
+    const requestId = randomRequestId();
     const result: DiagnosticsResult = {
       kind: "ai",
       url,
@@ -466,29 +539,41 @@ export default class AiTasksBoardPlugin extends Plugin {
     };
 
     try {
-      const resp = await fetch(url, {
+      void appendAiTasksLog(this, { type: "diagnostics.test_ai.request", request_id: requestId, runtime_url: this.settings.runtimeUrl });
+      const resp = await runtimeRequestJson<unknown>(this, {
+        path: "/v1/board/propose",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
+        body: req,
+        request_id: requestId,
       });
-      const text = await resp.text().catch(() => "");
-      result.latency_ms = Math.max(0, Date.now() - started);
-      result.http_status = resp.status;
-      if (!resp.ok) {
-        result.error = text || `HTTP ${resp.status}`;
-      } else {
-        result.ok = true;
-        try {
-          result.response = JSON.parse(text);
-        } catch {
-          result.ok = false;
-          result.error = "invalid_json";
-          result.response = text;
-        }
-      }
+      result.latency_ms = resp.meta.latency_ms;
+      if (typeof resp.meta.http_status === "number") result.http_status = resp.meta.http_status;
+      result.ok = true;
+      result.response = resp.json;
+      void appendAiTasksLog(this, {
+        type: "diagnostics.test_ai.response",
+        request_id: resp.meta.request_id,
+        latency_ms: resp.meta.latency_ms,
+        http_status: resp.meta.http_status,
+      });
     } catch (e) {
-      result.latency_ms = Math.max(0, Date.now() - started);
-      result.error = e instanceof Error ? e.message : String(e);
+      const err = e instanceof RuntimeHttpError ? e : null;
+      if (err) {
+        result.latency_ms = err.meta.latency_ms;
+        if (typeof err.meta.http_status === "number") result.http_status = err.meta.http_status;
+        result.error = `${err.message}${err.meta.response_snip ? " | " + err.meta.response_snip : ""}`;
+        void appendAiTasksLog(this, {
+          type: "diagnostics.test_ai.error",
+          request_id: err.meta.request_id,
+          latency_ms: err.meta.latency_ms,
+          http_status: err.meta.http_status,
+          response_snip: err.meta.response_snip,
+          error: err.message,
+        });
+      } else {
+        result.error = e instanceof Error ? e.message : String(e);
+        void appendAiTasksLog(this, { type: "diagnostics.test_ai.error", request_id: requestId, error: result.error });
+      }
     }
 
     new AiTasksDiagnosticsModal(this, result).open();
@@ -506,7 +591,7 @@ export default class AiTasksBoardPlugin extends Plugin {
       timeout_s: 60,
     };
 
-    const started = Date.now();
+    const requestId = randomRequestId();
     const result: DiagnosticsResult = {
       kind: "agent",
       url,
@@ -516,29 +601,46 @@ export default class AiTasksBoardPlugin extends Plugin {
     };
 
     try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
+      void appendAiTasksLog(this, {
+        type: "diagnostics.test_agent.request",
+        request_id: requestId,
+        runtime_url: this.settings.runtimeUrl,
       });
-      const text = await resp.text().catch(() => "");
-      result.latency_ms = Math.max(0, Date.now() - started);
-      result.http_status = resp.status;
-      if (!resp.ok) {
-        result.error = text || `HTTP ${resp.status}`;
-      } else {
-        result.ok = true;
-        try {
-          result.response = JSON.parse(text);
-        } catch {
-          result.ok = false;
-          result.error = "invalid_json";
-          result.response = text;
-        }
-      }
+      const resp = await runtimeRequestJson<unknown>(this, {
+        path: "/v1/agent/ask",
+        method: "POST",
+        body: req,
+        request_id: requestId,
+        timeout_ms: 90_000,
+      });
+      result.latency_ms = resp.meta.latency_ms;
+      if (typeof resp.meta.http_status === "number") result.http_status = resp.meta.http_status;
+      result.ok = true;
+      result.response = resp.json;
+      void appendAiTasksLog(this, {
+        type: "diagnostics.test_agent.response",
+        request_id: resp.meta.request_id,
+        latency_ms: resp.meta.latency_ms,
+        http_status: resp.meta.http_status,
+      });
     } catch (e) {
-      result.latency_ms = Math.max(0, Date.now() - started);
-      result.error = e instanceof Error ? e.message : String(e);
+      const err = e instanceof RuntimeHttpError ? e : null;
+      if (err) {
+        result.latency_ms = err.meta.latency_ms;
+        if (typeof err.meta.http_status === "number") result.http_status = err.meta.http_status;
+        result.error = `${err.message}${err.meta.response_snip ? " | " + err.meta.response_snip : ""}`;
+        void appendAiTasksLog(this, {
+          type: "diagnostics.test_agent.error",
+          request_id: err.meta.request_id,
+          latency_ms: err.meta.latency_ms,
+          http_status: err.meta.http_status,
+          response_snip: err.meta.response_snip,
+          error: err.message,
+        });
+      } else {
+        result.error = e instanceof Error ? e.message : String(e);
+        void appendAiTasksLog(this, { type: "diagnostics.test_agent.error", request_id: requestId, error: result.error });
+      }
     }
 
     new AiTasksDiagnosticsModal(this, result).open();
@@ -564,25 +666,69 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   private async fetchRuntimeStatus(): Promise<RuntimeStatusResponse | null> {
     const url = joinUrl(this.settings.runtimeUrl, "/v1/runtime/status");
+    const requestId = randomRequestId();
     try {
-      const resp = await fetch(url, { method: "GET" });
-      if (!resp.ok) return null;
-      return (await resp.json()) as RuntimeStatusResponse;
-    } catch {
+      const resp = await runtimeRequestJson<RuntimeStatusResponse>(this, {
+        path: "/v1/runtime/status",
+        method: "GET",
+        request_id: requestId,
+        timeout_ms: 5000,
+      });
+      void appendAiTasksLog(this, {
+        type: "runtime.status.ok",
+        request_id: resp.meta.request_id,
+        latency_ms: resp.meta.latency_ms,
+        http_status: resp.meta.http_status,
+        pid: resp.json.pid ?? null,
+        version: resp.json.version ?? null,
+        uptime_s: resp.json.uptime_s ?? null,
+      });
+      return resp.json;
+    } catch (e) {
+      const err = e instanceof RuntimeHttpError ? e : null;
+      void appendAiTasksLog(this, {
+        type: "runtime.status.error",
+        request_id: err?.meta.request_id ?? requestId,
+        latency_ms: err?.meta.latency_ms ?? null,
+        http_status: err?.meta.http_status ?? null,
+        response_snip: err?.meta.response_snip ?? null,
+        error: err ? err.message : e instanceof Error ? e.message : String(e),
+        url,
+      });
       return null;
     }
   }
 
   private async requestRuntimeShutdown(): Promise<boolean> {
     const url = joinUrl(this.settings.runtimeUrl, "/v1/runtime/shutdown");
+    const requestId = randomRequestId();
     try {
-      const resp = await fetch(url, {
+      const resp = await runtimeRequestJson<{ ok?: boolean; pid?: number }>(this, {
+        path: "/v1/runtime/shutdown",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force: false }),
+        body: { force: false },
+        request_id: requestId,
+        timeout_ms: 5000,
       });
-      return resp.ok;
-    } catch {
+      void appendAiTasksLog(this, {
+        type: "runtime.shutdown.ok",
+        request_id: resp.meta.request_id,
+        latency_ms: resp.meta.latency_ms,
+        http_status: resp.meta.http_status,
+        pid: resp.json.pid ?? null,
+      });
+      return true;
+    } catch (e) {
+      const err = e instanceof RuntimeHttpError ? e : null;
+      void appendAiTasksLog(this, {
+        type: "runtime.shutdown.error",
+        request_id: err?.meta.request_id ?? requestId,
+        latency_ms: err?.meta.latency_ms ?? null,
+        http_status: err?.meta.http_status ?? null,
+        response_snip: err?.meta.response_snip ?? null,
+        error: err ? err.message : e instanceof Error ? e.message : String(e),
+        url,
+      });
       return false;
     }
   }

@@ -38,3 +38,4 @@
 - Obsidian plugin: display AI session summaries/snippets in task detail when `sessions::` is present.
 - Obsidian plugin: added Agent workspace directory setting to allow prompt overrides inside a vault.
 - Prompting: refined `board.split` rules to default to 1-line = 1-task while allowing multi-task single lines when obvious.
+- Debugging/logging: added request-id + latency logging for plugin->runtime calls, runtime start/stop events in vault JSONL logs, and runtime-side structured logs with request-id correlation; runtime status now reports the real package version.
