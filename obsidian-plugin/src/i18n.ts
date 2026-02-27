@@ -110,6 +110,8 @@ const STRINGS = {
   "settings.runtime_args.desc": { en: "Arguments for runtime start (e.g. serve).", zh: "运行时启动参数（例如 serve）。" },
   "settings.runtime_cwd.name": { en: "Runtime working directory", zh: "运行时工作目录" },
   "settings.runtime_cwd.desc": { en: "Optional working directory for the runtime process.", zh: "运行时进程的可选工作目录。" },
+  "settings.runtime.version.line": { en: "Plugin v{{plugin}} | Runtime v{{runtime}}", zh: "插件 v{{plugin}} | 运行时 v{{runtime}}" },
+  "settings.runtime.version.unknown": { en: "unknown", zh: "未知" },
 
   // Settings: model
   "settings.model.heading": { en: "Model Settings", zh: "模型设置" },
@@ -117,6 +119,11 @@ const STRINGS = {
   "settings.model_provider.desc": { en: "codex-cli (local) or OpenAI-compatible API.", zh: "codex-cli（本地）或 OpenAI-compatible API。" },
   "settings.model_provider.opt.codex": { en: "codex-cli (local)", zh: "codex-cli（本地）" },
   "settings.model_provider.opt.openai": { en: "OpenAI-compatible API", zh: "OpenAI-compatible API" },
+  "settings.codex_cli_path.name": { en: "Codex CLI path", zh: "Codex CLI 路径" },
+  "settings.codex_cli_path.desc": {
+    en: "Optional path to local codex executable (used by codex-cli).",
+    zh: "本地 codex 可执行文件路径（仅用于 codex-cli）。",
+  },
   "settings.model_name.name": { en: "Model name", zh: "模型名称" },
   "settings.model_name.desc": { en: "Model identifier (for OpenAI-compatible providers).", zh: "模型标识（用于 OpenAI-compatible provider）。" },
   "settings.model_base_url.name": { en: "API base URL", zh: "API base URL" },

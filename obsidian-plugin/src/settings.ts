@@ -27,6 +27,7 @@ export type AiTasksBoardSettings = {
   runtimeCommand: string;
   runtimeArgs: string;
   runtimeCwd: string;
+  codexCliPath: string;
   modelProvider: AiModelProvider;
   modelName: string;
   modelBaseUrl: string;
@@ -48,6 +49,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   runtimeCommand: "ai-tasks-runtime",
   runtimeArgs: "serve",
   runtimeCwd: "",
+  codexCliPath: "",
   modelProvider: "codex-cli",
   modelName: "gpt-4o-mini",
   modelBaseUrl: "",
@@ -184,9 +186,23 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
 
     const statusLine = containerEl.createDiv({ cls: "ai-tasks-runtime-status" });
     const statusText = statusLine.createSpan({ text: this.plugin.t("settings.runtime.status.unchecked") });
-    const refreshStatus = async () => {
-      statusText.textContent = await this.plugin.refreshRuntimeStatus();
+    const versionLine = containerEl.createDiv({ cls: "ai-tasks-runtime-version" });
+    const versionText = versionLine.createSpan({ text: "" });
+    const renderVersion = (runtimeVersion: string | null) => {
+      const unknown = this.plugin.t("settings.runtime.version.unknown");
+      const pluginVersion = this.plugin.getPluginVersion() || unknown;
+      const runtimeVer = runtimeVersion && runtimeVersion.trim() ? runtimeVersion : unknown;
+      versionText.textContent = this.plugin.t("settings.runtime.version.line", {
+        plugin: pluginVersion,
+        runtime: runtimeVer,
+      });
     };
+    const refreshStatus = async () => {
+      const res = await this.plugin.refreshRuntimeStatus();
+      statusText.textContent = res.text;
+      renderVersion(res.runtimeVersion);
+    };
+    renderVersion(null);
 
     new Setting(containerEl)
       .setName(this.plugin.t("settings.runtime_control.name"))
@@ -261,6 +277,19 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
           this.plugin.settings.modelProvider = value as AiModelProvider;
           await this.plugin.saveSettings();
         });
+      });
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.codex_cli_path.name"))
+      .setDesc(this.plugin.t("settings.codex_cli_path.desc"))
+      .addText((text) => {
+        text
+          .setPlaceholder("C:\\\\path\\\\to\\\\codex.exe")
+          .setValue(this.plugin.settings.codexCliPath || "")
+          .onChange(async (value) => {
+            this.plugin.settings.codexCliPath = value.trim();
+            await this.plugin.saveSettings();
+          });
       });
 
     new Setting(containerEl)

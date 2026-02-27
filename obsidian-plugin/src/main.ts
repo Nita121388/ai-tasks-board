@@ -108,6 +108,10 @@ export default class AiTasksBoardPlugin extends Plugin {
     return translate(key, this.getResolvedLanguage(), vars);
   }
 
+  getPluginVersion(): string {
+    return this.manifest?.version || "";
+  }
+
   private getPluginDir(): string | null {
     const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
     const base = adapter?.getBasePath?.();
@@ -371,6 +375,10 @@ export default class AiTasksBoardPlugin extends Plugin {
     if (agentDir) {
       env.AI_TASKS_AGENT_DIR = agentDir;
     }
+    const codexBin = this.settings.codexCliPath?.trim();
+    if (codexBin) {
+      env.AI_TASKS_CODEX_BIN = codexBin;
+    }
 
     try {
       const child = spawn(cmd, args, {
@@ -536,7 +544,7 @@ export default class AiTasksBoardPlugin extends Plugin {
     new AiTasksDiagnosticsModal(this, result).open();
   }
 
-  async refreshRuntimeStatus(): Promise<string> {
+  async refreshRuntimeStatus(): Promise<{ text: string; runtimeVersion: string | null }> {
     const status = await this.fetchRuntimeStatus();
     const online = status?.ok;
     let text = online ? this.t("runtime.status.online") : this.t("runtime.status.offline");
@@ -550,7 +558,8 @@ export default class AiTasksBoardPlugin extends Plugin {
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null && this.runtimePid) {
       text += ` | ${this.t("runtime.status.local_pid", { pid: this.runtimePid })}`;
     }
-    return text;
+    const runtimeVersion = typeof status?.version === "string" ? status.version : null;
+    return { text, runtimeVersion };
   }
 
   private async fetchRuntimeStatus(): Promise<RuntimeStatusResponse | null> {

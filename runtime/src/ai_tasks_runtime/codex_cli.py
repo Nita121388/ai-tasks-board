@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+logger = logging.getLogger("ai_tasks_runtime.codex")
 
 
 @dataclass
@@ -29,6 +34,19 @@ def _iter_jsonl_lines(stdout: str) -> List[Dict[str, Any]]:
     return events
 
 
+def _resolve_codex_bin(codex_bin: str) -> str:
+    if not codex_bin:
+        return ""
+    p = Path(codex_bin).expanduser()
+    if p.is_absolute() or p.exists():
+        try:
+            return str(p.resolve())
+        except Exception:
+            return str(p)
+    found = shutil.which(codex_bin)
+    return found or codex_bin
+
+
 def run_codex_exec(
     prompt: str,
     *,
@@ -47,19 +65,52 @@ def run_codex_exec(
     if args is None:
         raise ValueError("args must be provided (include `exec --json ... -`)")
 
-    proc = subprocess.run(
-        [codex_bin, *args],
-        input=prompt.encode("utf-8"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=str(cwd) if cwd is not None else None,
-        timeout=timeout_s,
-        check=False,
+    resolved = _resolve_codex_bin(codex_bin)
+    logger.info(
+        "codex-cli exec start bin=%s resolved=%s cwd=%s timeout_s=%s",
+        codex_bin,
+        resolved,
+        str(cwd) if cwd is not None else "",
+        timeout_s,
     )
+
+    try:
+        proc = subprocess.run(
+            [codex_bin, *args],
+            input=prompt.encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(cwd) if cwd is not None else None,
+            timeout=timeout_s,
+            check=False,
+        )
+    except FileNotFoundError:
+        logger.error(
+            "codex-cli exec failed: file not found (bin=%s resolved=%s cwd=%s)",
+            codex_bin,
+            resolved,
+            str(cwd) if cwd is not None else "",
+        )
+        raise
+    except Exception:
+        logger.exception(
+            "codex-cli exec failed: unexpected error (bin=%s resolved=%s cwd=%s)",
+            codex_bin,
+            resolved,
+            str(cwd) if cwd is not None else "",
+        )
+        raise
 
     stdout = proc.stdout.decode("utf-8", errors="replace")
     stderr = proc.stderr.decode("utf-8", errors="replace")
     events = _iter_jsonl_lines(stdout)
+
+    logger.info(
+        "codex-cli exec done code=%s stdout_bytes=%s stderr_bytes=%s",
+        proc.returncode,
+        len(proc.stdout or b""),
+        len(proc.stderr or b""),
+    )
 
     if proc.returncode != 0:
         raise RuntimeError(f"codex exec failed (code={proc.returncode}). stderr={stderr.strip()}")
