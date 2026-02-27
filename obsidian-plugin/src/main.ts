@@ -371,7 +371,7 @@ export default class AiTasksBoardPlugin extends Plugin {
       env.AI_TASKS_HOST = urlInfo.host;
       env.AI_TASKS_PORT = String(urlInfo.port);
     }
-    const agentDir = this.getDefaultAgentDir();
+    const agentDir = this.settings.agentDir?.trim() || this.getDefaultAgentDir();
     if (agentDir) {
       env.AI_TASKS_AGENT_DIR = agentDir;
     }
@@ -576,7 +576,11 @@ export default class AiTasksBoardPlugin extends Plugin {
   private async requestRuntimeShutdown(): Promise<boolean> {
     const url = joinUrl(this.settings.runtimeUrl, "/v1/runtime/shutdown");
     try {
-      const resp = await fetch(url, { method: "POST" });
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: false }),
+      });
       return resp.ok;
     } catch {
       return false;

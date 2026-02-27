@@ -43,6 +43,7 @@ const STRINGS = {
   "btn.copy_json": { en: "Copy JSON", zh: "复制 JSON" },
   "btn.edit": { en: "Edit", zh: "编辑" },
   "btn.archive": { en: "Archive", zh: "归档" },
+  "btn.delete": { en: "Delete", zh: "删除" },
   "btn.import": { en: "Import", zh: "导入" },
   "btn.generate": { en: "Generate", zh: "生成" },
 
@@ -110,6 +111,11 @@ const STRINGS = {
   "settings.runtime_args.desc": { en: "Arguments for runtime start (e.g. serve).", zh: "运行时启动参数（例如 serve）。" },
   "settings.runtime_cwd.name": { en: "Runtime working directory", zh: "运行时工作目录" },
   "settings.runtime_cwd.desc": { en: "Optional working directory for the runtime process.", zh: "运行时进程的可选工作目录。" },
+  "settings.agent_dir.name": { en: "Agent workspace directory", zh: "Agent 工作目录" },
+  "settings.agent_dir.desc": {
+    en: "Optional. Store prompts/memory here; set to a vault path to edit prompts in Obsidian.",
+    zh: "可选。用于存放提示词/记忆；设置为 Vault 内路径即可在 Obsidian 中编辑提示词。",
+  },
   "settings.runtime.version.line": { en: "Plugin v{{plugin}} | Runtime v{{runtime}}", zh: "插件 v{{plugin}} | 运行时 v{{runtime}}" },
   "settings.runtime.version.unknown": { en: "unknown", zh: "未知" },
 
@@ -175,9 +181,14 @@ const STRINGS = {
   "board.task.select_to_view": { en: "Select a task to view details.", zh: "选择一个任务查看详情。" },
   "board.task.no_details": { en: "(no details)", zh: "（无详情）" },
   "board.confirm.archive": { en: "Archive this task?", zh: "归档这个任务？" },
+  "board.confirm.delete": { en: "Delete this task?", zh: "删除这个任务？" },
   "board.notice.archived_to": { en: "Archived task to {{path}}", zh: "已归档到 {{path}}" },
+  "board.notice.deleted": { en: "Deleted task.", zh: "已删除任务。" },
   "board.notice.fixed_escaped_newlines": { en: "AI Tasks: fixed escaped newlines in Board.md.", zh: "AI Tasks：已修复 Board.md 中的转义换行。" },
   "board.btn.add": { en: "+ Add", zh: "+ 新建" },
+  "board.task.sessions.title": { en: "AI Sessions", zh: "AI 会话" },
+  "board.task.sessions.empty": { en: "No session info.", zh: "无会话信息。" },
+  "board.task.sessions.missing": { en: "Session file not found.", zh: "未找到会话文件。" },
 
   // Draft modal
   "draft_modal.title.add": { en: "AI Tasks: Add to board", zh: "AI Tasks：添加到看板" },

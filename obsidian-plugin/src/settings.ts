@@ -28,6 +28,7 @@ export type AiTasksBoardSettings = {
   runtimeArgs: string;
   runtimeCwd: string;
   codexCliPath: string;
+  agentDir: string;
   modelProvider: AiModelProvider;
   modelName: string;
   modelBaseUrl: string;
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: AiTasksBoardSettings = {
   runtimeArgs: "serve",
   runtimeCwd: "",
   codexCliPath: "",
+  agentDir: "",
   modelProvider: "codex-cli",
   modelName: "gpt-4o-mini",
   modelBaseUrl: "",
@@ -260,6 +262,19 @@ export class AiTasksBoardSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.runtimeCwd)
           .onChange(async (value) => {
             this.plugin.settings.runtimeCwd = value.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.agent_dir.name"))
+      .setDesc(this.plugin.t("settings.agent_dir.desc"))
+      .addText((text) => {
+        text
+          .setPlaceholder("E:\\\\File\\\\NitaFile\\\\Obsidian\\\\Obsidian\\\\AI Tasks Agent")
+          .setValue(this.plugin.settings.agentDir || "")
+          .onChange(async (value) => {
+            this.plugin.settings.agentDir = value.trim();
             await this.plugin.saveSettings();
           });
       });

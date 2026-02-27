@@ -9,6 +9,13 @@ import { AiTasksBulkImportModal } from "./bulk_import_modal";
 
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
 
+type SessionInfo = {
+  ref: string;
+  summary: string | null;
+  snippets: string[];
+  missing: boolean;
+};
+
 function todayLocalDate(): string {
   const d = new Date();
   const yyyy = String(d.getFullYear());
@@ -103,6 +110,66 @@ export class BoardPanel {
       return false;
     }
     return matchesSearch(t, this.searchText);
+  }
+
+  private parseSessionRef(ref: string): { source: string; id: string } | null {
+    const raw = (ref || "").trim();
+    if (!raw) return null;
+    const idx = raw.indexOf(":");
+    if (idx === -1) return null;
+    const source = raw.slice(0, idx).trim();
+    const id = raw.slice(idx + 1).trim();
+    if (!source || !id) return null;
+    return { source, id };
+  }
+
+  private async loadSessionInfos(refs: string[]): Promise<SessionInfo[]> {
+    const out: SessionInfo[] = [];
+    const vault = this.plugin.app.vault;
+
+    for (const ref of refs) {
+      const parsed = this.parseSessionRef(ref);
+      if (!parsed) {
+        out.push({ ref, summary: null, snippets: [], missing: true });
+        continue;
+      }
+      const rel = `Sessions/${parsed.source}/${parsed.id}.json`;
+      const abs = vault.getAbstractFileByPath(rel);
+      if (!(abs instanceof TFile)) {
+        out.push({ ref, summary: null, snippets: [], missing: true });
+        continue;
+      }
+
+      try {
+        const raw = await vault.read(abs);
+        const data = JSON.parse(raw) as {
+          summary?: unknown;
+          snippets?: unknown;
+        };
+        const summary = typeof data.summary === "string" ? data.summary.trim() : "";
+        const snippetsRaw = Array.isArray(data.snippets) ? data.snippets : [];
+        const snippets: string[] = [];
+        for (const sn of snippetsRaw.slice(0, 3)) {
+          if (!sn || typeof sn !== "object") continue;
+          const role = typeof (sn as { role?: unknown }).role === "string" ? String((sn as { role?: unknown }).role) : "";
+          const text = typeof (sn as { text?: unknown }).text === "string" ? String((sn as { text?: unknown }).text) : "";
+          const one = text.replace(/\s+/g, " ").trim();
+          if (!one) continue;
+          snippets.push(role ? `${role}: ${one}` : one);
+        }
+
+        out.push({
+          ref,
+          summary: summary || null,
+          snippets,
+          missing: false,
+        });
+      } catch {
+        out.push({ ref, summary: null, snippets: [], missing: true });
+      }
+    }
+
+    return out;
   }
 
   private renderHeader(root: HTMLElement, allTags: string[], viewMode: "kanban" | "split" | "md"): void {
@@ -231,6 +298,7 @@ export class BoardPanel {
     task: BoardTask,
     onMove: (uuid: string, toStatus: BoardStatus, beforeUuid: string | null) => Promise<void>,
     onArchive: (uuid: string) => Promise<void>,
+    onDelete: (uuid: string) => Promise<void>,
     onEdit: (t: BoardTask) => void
   ): HTMLElement {
     const card = parent.createDiv({ cls: "ai-task-card", attr: { "data-uuid": task.uuid } });
@@ -260,6 +328,12 @@ export class BoardPanel {
     editBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       onEdit(task);
+    });
+
+    const deleteBtn = actions.createEl("button", { cls: "ai-task-delete", text: this.plugin.t("btn.delete") });
+    deleteBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      await onDelete(task.uuid);
     });
 
     if (task.status === "Done") {
@@ -440,6 +514,16 @@ export class BoardPanel {
       await this.render(root);
     };
 
+    const onDelete = async (uuid: string) => {
+      if (!window.confirm(this.plugin.t("board.confirm.delete"))) return;
+      const current = await this.readBoardNormalized();
+      const { next } = removeTaskBlock(current, uuid);
+      await writeWithHistory(this.plugin.app.vault, this.boardFile, next);
+      new Notice(this.plugin.t("board.notice.deleted"));
+      await appendAiTasksLog(this.plugin, { type: "task.delete", uuid });
+      await this.render(root);
+    };
+
     const onEdit = (t: BoardTask) => {
       new AiTasksEditTaskModal(this.plugin, {
         boardFile: this.boardFile,
@@ -475,7 +559,7 @@ export class BoardPanel {
 
         const section = parsed.sections.get(status);
         const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
-        for (const t of tasks) this.createCard(list, t, onMove, onArchive, onEdit);
+        for (const t of tasks) this.createCard(list, t, onMove, onArchive, onDelete, onEdit);
       }
       return;
     }
@@ -566,6 +650,11 @@ export class BoardPanel {
     const editBtn = meta.createEl("button", { text: this.plugin.t("btn.edit"), cls: "ai-tasks-detail-edit" });
     editBtn.addEventListener("click", () => onEdit(selected));
 
+    const deleteBtn = meta.createEl("button", { text: this.plugin.t("btn.delete"), cls: "ai-tasks-detail-delete" });
+    deleteBtn.addEventListener("click", async () => {
+      await onDelete(selected.uuid);
+    });
+
     if (selected.status === "Done") {
       const archiveBtn = meta.createEl("button", { text: this.plugin.t("btn.archive"), cls: "ai-tasks-detail-archive" });
       archiveBtn.addEventListener("click", async () => {
@@ -582,5 +671,44 @@ export class BoardPanel {
     const bodyText = this.extractBodyFromBlock(selected.rawBlock);
     const pre = body.createEl("pre", { cls: "ai-tasks-detail-body-pre" });
     pre.textContent = bodyText || this.plugin.t("board.task.no_details");
+
+    const sessionRefs = selected.sessions ?? [];
+    if (sessionRefs.length > 0) {
+      const sessionsBox = detail.createDiv({ cls: "ai-tasks-detail-sessions" });
+      sessionsBox.createDiv({
+        cls: "ai-tasks-detail-section-title",
+        text: this.plugin.t("board.task.sessions.title"),
+      });
+
+      const infos = await this.loadSessionInfos(sessionRefs);
+      if (!infos.length) {
+        sessionsBox.createDiv({ cls: "ai-tasks-detail-session-empty", text: this.plugin.t("board.task.sessions.empty") });
+      } else {
+        for (const info of infos) {
+          const row = sessionsBox.createDiv({ cls: "ai-tasks-detail-session" });
+          row.createDiv({ cls: "ai-tasks-detail-session-ref", text: info.ref });
+          if (info.missing) {
+            row.createDiv({
+              cls: "ai-tasks-detail-session-missing",
+              text: this.plugin.t("board.task.sessions.missing"),
+            });
+            continue;
+          }
+          if (info.summary) {
+            row.createDiv({ cls: "ai-tasks-detail-session-summary", text: info.summary });
+          }
+          if (info.snippets.length > 0) {
+            const snip = row.createEl("pre", { cls: "ai-tasks-detail-session-snippets" });
+            snip.textContent = info.snippets.join("\n");
+          }
+          if (!info.summary && info.snippets.length === 0) {
+            row.createDiv({
+              cls: "ai-tasks-detail-session-empty",
+              text: this.plugin.t("board.task.sessions.empty"),
+            });
+          }
+        }
+      }
+    }
   }
 }

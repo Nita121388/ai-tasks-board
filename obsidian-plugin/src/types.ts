@@ -5,6 +5,7 @@ export type BoardTask = {
   title: string;
   status: BoardStatus;
   tags: string[];
+  sessions: string[];
   rawBlock: string;
   start: number;
   end: number;

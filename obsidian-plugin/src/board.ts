@@ -64,6 +64,20 @@ function parseTagsFromBlock(block: string): string[] {
   return [];
 }
 
+function parseSessionsFromBlock(block: string): string[] {
+  const lines = block.split("\n");
+  for (const line of lines) {
+    const m = line.match(/^>\s*sessions::\s*(.+)\s*$/i);
+    if (m?.[1]) {
+      return m[1]
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+    }
+  }
+  return [];
+}
+
 function parseStatusFromBlock(block: string): BoardStatus | null {
   const lines = block.split("\n");
   for (const line of lines) {
@@ -147,12 +161,14 @@ function parseSections(content: string, autoStart: number, autoEnd: number): Map
       const parsedStatus = parseStatusFromBlock(rawBlock) ?? h.status;
       const title = parseTitleFromBlock(rawBlock);
       const tags = parseTagsFromBlock(rawBlock);
+      const sessions = parseSessionsFromBlock(rawBlock);
 
       tasks.push({
         uuid,
         title,
         status: parsedStatus,
         tags,
+        sessions,
         rawBlock,
         start: beginAbs,
         end: endAbsExpanded,
