@@ -235,12 +235,23 @@ jobs:
             local platform="$1"
             local arch="$2"
             local exe="$3"
-            local src="runtime-bin/runtime-bin-${platform}-${arch}/runtime/dist/${exe}"
+            local base="runtime-bin/runtime-bin-${platform}-${arch}"
+            # Similar to the wheel artifact, the runtime binary artifact often ends up
+            # flattened at the artifact root (because a single file is uploaded).
+            # Accept both layouts:
+            # - ${base}/runtime/dist/<exe>
+            # - ${base}/<exe>
+            local src1="${base}/runtime/dist/${exe}"
+            local src2="${base}/${exe}"
+            local src="$src1"
+            if [[ -f "$src2" && ! -f "$src1" ]]; then
+              src="$src2"
+            fi
             local runtime_zip="dist/ai-tasks-runtime-${VERSION}-${platform}-${arch}.zip"
             local bundle_zip="dist/ai-tasks-board-bundle-${VERSION}-${platform}-${arch}.zip"
 
             if [[ ! -f "$src" ]]; then
-              echo "Missing runtime binary: $src" >&2
+              echo "Missing runtime binary: $src1 (or $src2)" >&2
               exit 1
             fi
 
