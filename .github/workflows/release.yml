@@ -225,7 +225,10 @@ jobs:
           cp "plugin-dist/dist/ai-tasks-board-obsidian-plugin-${VERSION}.zip" dist/
 
           # Copy wheel/sdist.
-          cp runtime-wheel/runtime/dist/* dist/
+          # NOTE: actions/upload-artifact strips the common path prefix when all
+          # uploaded files share the same root (here: runtime/dist). As a result,
+          # the downloaded artifact contains the wheel/sdist at the artifact root.
+          cp runtime-wheel/* dist/
 
           # Helper: build runtime + bundle zips.
           build_bundle() {
