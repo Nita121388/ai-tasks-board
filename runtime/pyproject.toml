@@ -1,6 +1,6 @@
 [project]
 name = "ai-tasks-runtime"
-version = "0.1.6"
+version = "0.1.7"
 description = "Local runtime for AI Tasks Board (Agno + FastAPI), including codex-cli model provider."
 requires-python = ">=3.12"
 dependencies = [

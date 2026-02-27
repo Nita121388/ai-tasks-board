@@ -312,6 +312,16 @@ def _parse_json_obj(text: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _sanitize_error_message(msg: str, *, max_len: int = 220) -> str:
+    """Keep error messages short and avoid leaking obvious secrets."""
+
+    s = (msg or "").strip().replace("\r", " ").replace("\n", " ")
+    s = re.sub(r"sk-[A-Za-z0-9]{8,}", "sk-REDACTED", s)
+    if len(s) > max_len:
+        s = s[:max_len] + "..."
+    return s
+
+
 def _normalize_model_config(req: BoardProposeRequest) -> ModelConfig:
     return req.ai_model or ModelConfig()
 
@@ -730,7 +740,8 @@ def board_propose(req: BoardProposeRequest) -> BoardProposeResponse:
                 proposed.target_uuid = None
             return proposed
     except Exception as exc:
-        ai_fallback = f"exception:{type(exc).__name__}"
+        detail = _sanitize_error_message(str(exc))
+        ai_fallback = f"exception:{type(exc).__name__}" + (f":{detail}" if detail else "")
         logger.exception("board_propose failed; falling back to heuristic", exc_info=exc)
     else:
         ai_fallback = "no_valid_json"
@@ -754,7 +765,8 @@ def board_split(req: BoardSplitRequest) -> BoardSplitResponse:
         if proposed is not None:
             return proposed
     except Exception as exc:
-        ai_fallback = f"exception:{type(exc).__name__}"
+        detail = _sanitize_error_message(str(exc))
+        ai_fallback = f"exception:{type(exc).__name__}" + (f":{detail}" if detail else "")
         logger.exception("board_split failed; falling back to heuristic", exc_info=exc)
     else:
         ai_fallback = "no_valid_json"

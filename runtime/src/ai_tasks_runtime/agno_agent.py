@@ -5,11 +5,22 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Union
 
 from agno.agent import Agent
+from agno.run.base import RunStatus
 from agno.tools import Toolkit
 from agno.tools.function import Function
 
 from ai_tasks_runtime.agno_models.codex_cli_model import CodexCLIModel
 from ai_tasks_runtime.config import settings
+
+
+class AgentRunError(RuntimeError):
+    """Raised when Agno reports the run status as ERROR.
+
+    Agno's default behavior is to swallow model exceptions and return a RunOutput
+    with status=ERROR and content set to the exception message. For our runtime
+    endpoints, we want normal Python exception flow so we can surface a clear
+    `ai_fallback` reason and/or return a proper HTTP error.
+    """
 
 
 @dataclass(frozen=True)
@@ -63,6 +74,9 @@ def run_agent_text(
 ) -> AgentRunResult:
     agent = build_codex_cli_agent(timeout_s=timeout_s, cwd=cwd, tools=tools)
     out = agent.run(prompt)
+
+    if out.status == RunStatus.error or (isinstance(out.status, str) and out.status.upper() == "ERROR"):
+        raise AgentRunError(out.get_content_as_string())
 
     text = out.get_content_as_string()
     provider_data = out.model_provider_data or None

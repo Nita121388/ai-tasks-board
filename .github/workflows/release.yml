@@ -176,6 +176,7 @@ jobs:
           pyinstaller --noconfirm --clean --onefile \
             --name ai-tasks-runtime \
             --collect-submodules ai_tasks_runtime \
+            --collect-submodules rich._unicode_data \
             pyinstaller_entrypoint.py
 
       - name: Upload runtime binary artifact
