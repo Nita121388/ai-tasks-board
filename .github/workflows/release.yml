@@ -97,13 +97,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sync versions (manifest/pyproject)
-        run: python3 scripts/ai_tasks_board_bump_version.py "${{ needs.meta.outputs.version }}"
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Sync versions (manifest/pyproject)
+        run: python scripts/ai_tasks_board_bump_version.py "${{ needs.meta.outputs.version }}"
 
       - name: Build runtime (wheel/sdist)
         working-directory: runtime
@@ -147,13 +147,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sync versions (manifest/pyproject)
-        run: python3 scripts/ai_tasks_board_bump_version.py "${{ needs.meta.outputs.version }}"
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Sync versions (manifest/pyproject)
+        run: python scripts/ai_tasks_board_bump_version.py "${{ needs.meta.outputs.version }}"
 
       - name: Build runtime binary (PyInstaller)
         working-directory: runtime
