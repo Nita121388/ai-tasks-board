@@ -59,6 +59,15 @@ ai-tasks-runtime agent ask "Reply with OK." --no-include-memory
 ai-tasks-runtime agent heartbeat
 ```
 
+#### Prompt overrides (customize behavior)
+
+The runtime supports **prompt overrides**. If a prompt file exists under the Agent workspace, it is used instead of the built-in default.
+
+- Prompt folder: `<agent_dir>/prompts/`
+- Example override: `board.split.v1.md`
+
+To edit prompts inside Obsidian, point the **Agent workspace directory** setting to a path inside your vault, then open/edit `prompts/*.md`.
+
 ### Obsidian plugin
 
 ```bash
@@ -66,6 +75,12 @@ cd obsidian-plugin
 npm install
 npm run build
 ```
+
+#### Plugin settings (key items)
+
+- **Codex CLI path**: set if `codex` is not on PATH (Windows).
+- **Agent workspace directory**: optional; set to a vault path to edit prompt overrides in Obsidian.
+- **Runtime URL / command / args / cwd**: configure how the local runtime is started.
 
 #### Using the board (in-note UI)
 

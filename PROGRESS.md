@@ -32,3 +32,9 @@
 
 - Release workflow: fixed packaging paths for wheel + runtime binary artifacts (downloaded artifacts can be flattened at the root).
 - Published GitHub Release `v0.1.6` (bundle zips per platform/arch + plugin zip + runtime wheel/sdist + checksums).
+- Obsidian plugin: added Codex CLI path setting (injects `AI_TASKS_CODEX_BIN`) and settings panel now shows plugin/runtime versions.
+- Runtime: added Codex CLI exec logging (bin path, resolved path, cwd, return code, stdout/stderr sizes) for easier diagnostics.
+- Obsidian plugin: added task deletion (card + detail view) with history snapshots.
+- Obsidian plugin: display AI session summaries/snippets in task detail when `sessions::` is present.
+- Obsidian plugin: added Agent workspace directory setting to allow prompt overrides inside a vault.
+- Prompting: refined `board.split` rules to default to 1-line = 1-task while allowing multi-task single lines when obvious.
