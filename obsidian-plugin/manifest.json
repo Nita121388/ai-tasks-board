@@ -1,7 +1,7 @@
 {
   "id": "ai-tasks-board",
   "name": "AI Tasks Board",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "minAppVersion": "1.5.0",
   "description": "AI tasks board with a visual view (filter, drag/drop) + local runtime integration.",
   "author": "Nita",
