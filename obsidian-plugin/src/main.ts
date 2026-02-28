@@ -112,6 +112,7 @@ export default class AiTasksBoardPlugin extends Plugin {
   private boardOverlay: BoardNoteOverlayManager | null = null;
   private autoStartPromise: Promise<void> | null = null;
   private sessionsMigrationTimer: number | null = null;
+  private debugStatusEl: HTMLElement | null = null;
 
   private getObsidianLanguageCode(): string {
     try {
@@ -271,6 +272,23 @@ export default class AiTasksBoardPlugin extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
 
+  private setupDebugStatusEntry(): void {
+    if (this.debugStatusEl) return;
+    const el = this.addStatusBarItem();
+    el.setText(this.t("debug.view.title"));
+    el.title = this.t("cmd.open_debug_sidebar");
+    el.style.cursor = "pointer";
+    el.addEventListener("click", () => {
+      void this.activateDebugView();
+    });
+    this.debugStatusEl = el;
+  }
+
+  private async ensureDebugViewVisible(): Promise<void> {
+    if (this.app.workspace.getLeavesOfType(AI_TASKS_DEBUG_VIEW_TYPE).length > 0) return;
+    await this.activateDebugView();
+  }
+
   private scheduleLegacySessionsMigration(delayMs = 1200): void {
     if (this.sessionsMigrationTimer !== null) return;
     this.sessionsMigrationTimer = window.setTimeout(() => {
@@ -356,6 +374,7 @@ export default class AiTasksBoardPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     this.registerView(AI_TASKS_DEBUG_VIEW_TYPE, (leaf) => new AiTasksDebugView(leaf, this));
+    this.setupDebugStatusEntry();
     this.boardOverlay = new BoardNoteOverlayManager(this);
     this.scheduleLegacySessionsMigration(300);
 
@@ -455,6 +474,7 @@ export default class AiTasksBoardPlugin extends Plugin {
     void this.autoStartRuntimeIfNeeded();
     this.app.workspace.onLayoutReady(() => {
       void this.autoStartRuntimeIfNeeded();
+      void this.ensureDebugViewVisible();
     });
   }
 
@@ -487,6 +507,7 @@ export default class AiTasksBoardPlugin extends Plugin {
     }
     this.sessionsProcess = null;
     this.sessionsPid = null;
+    this.debugStatusEl = null;
 
     this.app.workspace.getLeavesOfType(AI_TASKS_DEBUG_VIEW_TYPE).forEach((leaf) => leaf.detach());
   }
