@@ -443,7 +443,7 @@ def sync_codex_sessions(
     """Scan Codex rollouts and write new session JSON files into the vault (Mode B)."""
 
     root = sessions_root or settings.codex_sessions_dir
-    out_dir = vault_dir / "Sessions" / "codex"
+    out_dir = vault_dir / "Tasks" / "Sessions" / "codex"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     board_content: Optional[str] = None

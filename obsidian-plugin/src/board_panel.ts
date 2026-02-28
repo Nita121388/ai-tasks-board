@@ -134,6 +134,7 @@ export class BoardPanel {
   private async loadSessionInfos(refs: string[]): Promise<SessionInfo[]> {
     const out: SessionInfo[] = [];
     const vault = this.plugin.app.vault;
+    const roots = this.plugin.getSessionSearchRoots();
 
     for (const ref of refs) {
       const parsed = this.parseSessionRef(ref);
@@ -141,9 +142,16 @@ export class BoardPanel {
         out.push({ ref, summary: null, snippets: [], missing: true });
         continue;
       }
-      const rel = `Sessions/${parsed.source}/${parsed.id}.json`;
-      const abs = vault.getAbstractFileByPath(rel);
-      if (!(abs instanceof TFile)) {
+      let abs: TFile | null = null;
+      for (const root of roots) {
+        const rel = `${root.replace(/\/+$/g, "")}/${parsed.source}/${parsed.id}.json`;
+        const found = vault.getAbstractFileByPath(rel);
+        if (found instanceof TFile) {
+          abs = found;
+          break;
+        }
+      }
+      if (!abs) {
         out.push({ ref, summary: null, snippets: [], missing: true });
         continue;
       }
@@ -181,17 +189,27 @@ export class BoardPanel {
   }
 
   private async loadCapturedSessions(limit = 12): Promise<CapturedSessionInfo[]> {
+    const roots = this.plugin.getSessionSearchRoots().map((r) => `${r.replace(/\/+$/g, "")}/`);
     const files = this.plugin.app.vault
       .getFiles()
-      .filter((f) => /^Sessions\/[^/]+\/[^/]+\.json$/i.test(f.path))
+      .filter((f) => {
+        if (!f.path.toLowerCase().endsWith(".json")) return false;
+        return roots.some((root) => f.path.startsWith(root));
+      })
       .sort((a, b) => b.stat.mtime - a.stat.mtime)
       .slice(0, Math.max(1, limit));
 
     const out: CapturedSessionInfo[] = [];
     for (const f of files) {
-      const parts = f.path.split("/");
-      const source = parts[1] ?? "unknown";
-      const ref = `${source}:${f.basename}`;
+      let ref = `unknown:${f.basename}`;
+      for (const root of roots) {
+        if (!f.path.startsWith(root)) continue;
+        const remain = f.path.slice(root.length);
+        const parts = remain.split("/");
+        const source = parts[0] || "unknown";
+        ref = `${source}:${f.basename}`;
+        break;
+      }
 
       try {
         const raw = await this.plugin.app.vault.read(f);

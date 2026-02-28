@@ -1,6 +1,6 @@
 import { Editor, MarkdownView, Menu, Notice, Plugin, TFile, getLanguage } from "obsidian";
 import { spawn, type ChildProcess } from "child_process";
-import { appendFileSync, chmodSync, existsSync, mkdirSync } from "fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { appendAiTasksLog } from "./ai_log";
@@ -12,6 +12,10 @@ import { BoardNoteOverlayManager } from "./board_note_overlay";
 import { AiTasksDiagnosticsModal, type DiagnosticsResult } from "./diagnostics_modal";
 import { resolveLanguage, t as translate, type I18nKey, type ResolvedLanguage, type TemplateVars } from "./i18n";
 import { RuntimeHttpError, randomRequestId, runtimeRequestJson } from "./runtime_http";
+import { AI_TASKS_DEBUG_VIEW_TYPE, AiTasksDebugView } from "./debug_view";
+
+const PRIMARY_SESSIONS_ROOT = "Tasks/Sessions";
+const LEGACY_SESSIONS_ROOT = "Sessions";
 
 type RuntimeStatusResponse = {
   ok?: boolean;
@@ -95,6 +99,7 @@ export default class AiTasksBoardPlugin extends Plugin {
   private sessionsPid: number | null = null;
   private boardOverlay: BoardNoteOverlayManager | null = null;
   private autoStartPromise: Promise<void> | null = null;
+  private sessionsMigrationTimer: number | null = null;
 
   private getObsidianLanguageCode(): string {
     try {
@@ -126,6 +131,34 @@ export default class AiTasksBoardPlugin extends Plugin {
   private getVaultBasePath(): string | null {
     const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
     return adapter?.getBasePath?.() || null;
+  }
+
+  getPluginDirForDebug(): string | null {
+    return this.getPluginDir();
+  }
+
+  getPrimarySessionsRoot(): string {
+    return PRIMARY_SESSIONS_ROOT;
+  }
+
+  getSessionSearchRoots(): string[] {
+    return [PRIMARY_SESSIONS_ROOT, LEGACY_SESSIONS_ROOT];
+  }
+
+  isRuntimeManagedRunning(): boolean {
+    return Boolean(this.runtimeProcess && this.runtimeProcess.exitCode === null);
+  }
+
+  getRuntimeManagedPid(): number | null {
+    return this.runtimePid;
+  }
+
+  isSessionsWatcherRunning(): boolean {
+    return Boolean(this.sessionsProcess && this.sessionsProcess.exitCode === null);
+  }
+
+  getSessionsWatcherPid(): number | null {
+    return this.sessionsPid;
   }
 
   private getDefaultAgentDir(): string | null {
@@ -198,6 +231,87 @@ export default class AiTasksBoardPlugin extends Plugin {
     return { cmd, cwd, env, bundledCmd, urlInfo };
   }
 
+  private async activateDebugView(): Promise<void> {
+    let leaf = this.app.workspace.getLeavesOfType(AI_TASKS_DEBUG_VIEW_TYPE)[0];
+    if (!leaf) {
+      leaf = this.app.workspace.getLeftLeaf(false) ?? this.app.workspace.getLeaf(true);
+      await leaf.setViewState({
+        type: AI_TASKS_DEBUG_VIEW_TYPE,
+        active: true,
+      });
+    }
+    await this.app.workspace.revealLeaf(leaf);
+  }
+
+  private scheduleLegacySessionsMigration(delayMs = 1200): void {
+    if (this.sessionsMigrationTimer !== null) return;
+    this.sessionsMigrationTimer = window.setTimeout(() => {
+      this.sessionsMigrationTimer = null;
+      this.migrateLegacySessionsToPrimaryRoot();
+    }, Math.max(100, delayMs));
+  }
+
+  private moveJsonFilesRecursive(srcDir: string, dstDir: string): { moved: number; skipped: number; errors: number } {
+    let moved = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    if (!existsSync(srcDir)) return { moved, skipped, errors };
+    mkdirSync(dstDir, { recursive: true });
+    const entries = readdirSync(srcDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = join(srcDir, entry.name);
+      const dstPath = join(dstDir, entry.name);
+      if (entry.isDirectory()) {
+        const child = this.moveJsonFilesRecursive(srcPath, dstPath);
+        moved += child.moved;
+        skipped += child.skipped;
+        errors += child.errors;
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.toLowerCase().endsWith(".json")) continue;
+      if (existsSync(dstPath)) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        renameSync(srcPath, dstPath);
+        moved += 1;
+      } catch {
+        try {
+          copyFileSync(srcPath, dstPath);
+          unlinkSync(srcPath);
+          moved += 1;
+        } catch {
+          errors += 1;
+        }
+      }
+    }
+    return { moved, skipped, errors };
+  }
+
+  private migrateLegacySessionsToPrimaryRoot(): void {
+    const vaultPath = this.getVaultBasePath();
+    if (!vaultPath) return;
+
+    const legacyRoot = join(vaultPath, LEGACY_SESSIONS_ROOT);
+    const primaryRoot = join(vaultPath, PRIMARY_SESSIONS_ROOT);
+    if (!existsSync(legacyRoot)) return;
+
+    const result = this.moveJsonFilesRecursive(legacyRoot, primaryRoot);
+    if (result.moved > 0 || result.errors > 0) {
+      void appendAiTasksLog(this, {
+        type: "sessions.migrate.legacy",
+        from: LEGACY_SESSIONS_ROOT,
+        to: PRIMARY_SESSIONS_ROOT,
+        moved: result.moved,
+        skipped: result.skipped,
+        errors: result.errors,
+      });
+    }
+  }
+
   private async autoStartRuntimeIfNeeded(): Promise<void> {
     if (!this.settings.autoStartRuntime) return;
     if (this.autoStartPromise) return;
@@ -213,7 +327,9 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.registerView(AI_TASKS_DEBUG_VIEW_TYPE, (leaf) => new AiTasksDebugView(leaf, this));
     this.boardOverlay = new BoardNoteOverlayManager(this);
+    this.scheduleLegacySessionsMigration(300);
 
     this.addCommand({
       id: "open-ai-tasks-board-note",
@@ -240,6 +356,18 @@ export default class AiTasksBoardPlugin extends Plugin {
         const sourcePath = this.app.workspace.getActiveFile()?.path ?? null;
         new AiTasksBulkImportModal(this, { selection: "", sourcePath }).open();
       },
+    });
+
+    this.addCommand({
+      id: "open-ai-tasks-debug-sidebar",
+      name: this.t("cmd.open_debug_sidebar"),
+      callback: () => {
+        void this.activateDebugView();
+      },
+    });
+
+    this.addRibbonIcon("activity", this.t("cmd.open_debug_sidebar"), () => {
+      void this.activateDebugView();
     });
 
     // Board note overlay: render the draggable board UI directly in the note area
@@ -303,6 +431,11 @@ export default class AiTasksBoardPlugin extends Plugin {
   }
 
   onunload(): void {
+    if (this.sessionsMigrationTimer !== null) {
+      window.clearTimeout(this.sessionsMigrationTimer);
+      this.sessionsMigrationTimer = null;
+    }
+
     this.boardOverlay?.dispose();
     this.boardOverlay = null;
 
@@ -326,6 +459,8 @@ export default class AiTasksBoardPlugin extends Plugin {
     }
     this.sessionsProcess = null;
     this.sessionsPid = null;
+
+    this.app.workspace.getLeavesOfType(AI_TASKS_DEBUG_VIEW_TYPE).forEach((leaf) => leaf.detach());
   }
 
   requestOverlayUpdate(): void {
@@ -418,6 +553,7 @@ export default class AiTasksBoardPlugin extends Plugin {
         stderrPath = join(logDir, "sessions.stderr.log");
         child.stdout?.on("data", (buf) => {
           if (stdoutPath) appendFileSync(stdoutPath, buf.toString());
+          this.scheduleLegacySessionsMigration();
         });
         child.stderr?.on("data", (buf) => {
           if (stderrPath) appendFileSync(stderrPath, buf.toString());
