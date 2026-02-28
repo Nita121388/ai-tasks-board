@@ -91,6 +91,8 @@ export default class AiTasksBoardPlugin extends Plugin {
   settings: AiTasksBoardSettings;
   private runtimeProcess: ChildProcess | null = null;
   private runtimePid: number | null = null;
+  private sessionsProcess: ChildProcess | null = null;
+  private sessionsPid: number | null = null;
   private boardOverlay: BoardNoteOverlayManager | null = null;
   private autoStartPromise: Promise<void> | null = null;
 
@@ -119,6 +121,11 @@ export default class AiTasksBoardPlugin extends Plugin {
     const base = adapter?.getBasePath?.();
     if (!base) return null;
     return join(base, this.app.vault.configDir, "plugins", "ai-tasks-board");
+  }
+
+  private getVaultBasePath(): string | null {
+    const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
+    return adapter?.getBasePath?.() || null;
   }
 
   private getDefaultAgentDir(): string | null {
@@ -150,13 +157,52 @@ export default class AiTasksBoardPlugin extends Plugin {
     return null;
   }
 
+  private resolveRuntimeSpawnBase(): {
+    cmd: string;
+    cwd: string | undefined;
+    env: Record<string, string>;
+    bundledCmd: string | null;
+    urlInfo: ParsedRuntimeUrl | null;
+  } | null {
+    const bundledCmd = this.getBundledRuntimeCommand();
+    const isDefaultCmd = this.settings.runtimeCommand.trim() === DEFAULT_SETTINGS.runtimeCommand;
+    let cmd = this.settings.runtimeCommand.trim();
+    if ((!cmd || isDefaultCmd) && bundledCmd) {
+      cmd = bundledCmd;
+      if (process.platform !== "win32") {
+        try {
+          chmodSync(cmd, 0o755);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (!cmd) return null;
+
+    const pluginDir = this.getPluginDir();
+    const cwd = this.settings.runtimeCwd.trim() || (cmd === bundledCmd ? pluginDir || undefined : undefined);
+    const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+    const urlInfo = parseRuntimeUrl(this.settings.runtimeUrl);
+    if (urlInfo) {
+      env.AI_TASKS_HOST = urlInfo.host;
+      env.AI_TASKS_PORT = String(urlInfo.port);
+    }
+    const agentDir = this.settings.agentDir?.trim() || this.getDefaultAgentDir();
+    if (agentDir) {
+      env.AI_TASKS_AGENT_DIR = agentDir;
+    }
+    const codexBin = this.settings.codexCliPath?.trim();
+    if (codexBin) {
+      env.AI_TASKS_CODEX_BIN = codexBin;
+    }
+    return { cmd, cwd, env, bundledCmd, urlInfo };
+  }
+
   private async autoStartRuntimeIfNeeded(): Promise<void> {
     if (!this.settings.autoStartRuntime) return;
     if (this.autoStartPromise) return;
 
     this.autoStartPromise = (async () => {
-      const status = await this.fetchRuntimeStatus();
-      if (status?.ok) return;
       await this.startRuntime();
     })().finally(() => {
       this.autoStartPromise = null;
@@ -267,6 +313,16 @@ export default class AiTasksBoardPlugin extends Plugin {
     }
     this.runtimeProcess = null;
     this.runtimePid = null;
+
+    if (this.sessionsProcess && this.sessionsProcess.exitCode === null) {
+      try {
+        this.sessionsProcess.kill();
+      } catch {
+        // ignore
+      }
+    }
+    this.sessionsProcess = null;
+    this.sessionsPid = null;
   }
 
   requestOverlayUpdate(): void {
@@ -321,8 +377,94 @@ export default class AiTasksBoardPlugin extends Plugin {
     return out;
   }
 
+  private async startSessionsWatcherIfNeeded(base: { cmd: string; cwd: string | undefined; env: Record<string, string> }): Promise<void> {
+    if (this.sessionsProcess && this.sessionsProcess.exitCode === null) return;
+
+    const vaultPath = this.getVaultBasePath();
+    if (!vaultPath) {
+      void appendAiTasksLog(this, { type: "sessions.watch.skip.no_vault_path" });
+      return;
+    }
+
+    const args = ["sessions", "watch", vaultPath, "--board-path", this.settings.boardPath];
+    void appendAiTasksLog(this, {
+      type: "sessions.watch.start.request",
+      cmd: base.cmd,
+      args,
+      cwd: base.cwd ?? null,
+      vault: vaultPath,
+      board_path: this.settings.boardPath,
+    });
+
+    const child = spawn(base.cmd, args, {
+      cwd: base.cwd,
+      windowsHide: true,
+      shell: false,
+      env: base.env,
+    });
+    this.sessionsProcess = child;
+    this.sessionsPid = child.pid ?? null;
+
+    const logDir = this.getPluginDir();
+    let stdoutPath: string | null = null;
+    let stderrPath: string | null = null;
+    if (logDir) {
+      try {
+        mkdirSync(logDir, { recursive: true });
+        stdoutPath = join(logDir, "sessions.stdout.log");
+        stderrPath = join(logDir, "sessions.stderr.log");
+        child.stdout?.on("data", (buf) => {
+          if (stdoutPath) appendFileSync(stdoutPath, buf.toString());
+        });
+        child.stderr?.on("data", (buf) => {
+          if (stderrPath) appendFileSync(stderrPath, buf.toString());
+        });
+      } catch (e) {
+        void appendAiTasksLog(this, {
+          type: "sessions.watch.logfiles_error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    void appendAiTasksLog(this, {
+      type: "sessions.watch.start.spawned",
+      pid: child.pid ?? null,
+      stdout_log: stdoutPath,
+      stderr_log: stderrPath,
+    });
+
+    child.on("exit", (code, signal) => {
+      void appendAiTasksLog(this, {
+        type: "sessions.watch.process.exit",
+        pid: child.pid ?? null,
+        code: code ?? null,
+        signal: signal ?? null,
+      });
+      this.sessionsProcess = null;
+      this.sessionsPid = null;
+    });
+
+    child.on("error", (err) => {
+      void appendAiTasksLog(this, {
+        type: "sessions.watch.process.error",
+        pid: child.pid ?? null,
+        error: err instanceof Error ? err.message : String(err),
+        code: (err as unknown as { code?: string }).code ?? null,
+      });
+    });
+  }
+
+  private stopSessionsWatcher(): boolean {
+    if (!this.sessionsProcess || this.sessionsProcess.exitCode !== null) return false;
+    this.sessionsProcess.kill();
+    void appendAiTasksLog(this, { type: "sessions.watch.stop.killed", pid: this.sessionsPid ?? null });
+    return true;
+  }
+
   async startRuntime(): Promise<void> {
     const online = await this.fetchRuntimeStatus();
+    const base = this.resolveRuntimeSpawnBase();
     if (online?.ok) {
       void appendAiTasksLog(this, {
         type: "runtime.start.skip.online",
@@ -330,6 +472,11 @@ export default class AiTasksBoardPlugin extends Plugin {
         pid: online.pid ?? null,
         version: online.version ?? null,
       });
+      if (base) {
+        await this.startSessionsWatcherIfNeeded(base);
+      } else {
+        void appendAiTasksLog(this, { type: "sessions.watch.skip.no_runtime_cmd" });
+      }
       new Notice(this.t("notice.runtime.already_online"));
       return;
     }
@@ -340,32 +487,22 @@ export default class AiTasksBoardPlugin extends Plugin {
         runtime_url: this.settings.runtimeUrl,
         pid: this.runtimePid ?? null,
       });
+      if (base) {
+        await this.startSessionsWatcherIfNeeded(base);
+      } else {
+        void appendAiTasksLog(this, { type: "sessions.watch.skip.no_runtime_cmd" });
+      }
       new Notice(this.t("notice.runtime.already_running"));
       return;
     }
 
-    const bundledCmd = this.getBundledRuntimeCommand();
-    const isDefaultCmd = this.settings.runtimeCommand.trim() === DEFAULT_SETTINGS.runtimeCommand;
-    let cmd = this.settings.runtimeCommand.trim();
-    if ((!cmd || isDefaultCmd) && bundledCmd) {
-      cmd = bundledCmd;
-      // Zip extractions on Unix can lose exec bits depending on tooling.
-      if (process.platform !== "win32") {
-        try {
-          chmodSync(cmd, 0o755);
-        } catch {
-          // ignore
-        }
-      }
-    }
-
-    if (!cmd) {
+    if (!base) {
       new Notice(this.t("notice.runtime.command_empty"));
       return;
     }
 
     const args = splitArgs(this.settings.runtimeArgs || "");
-    const urlInfo = parseRuntimeUrl(this.settings.runtimeUrl);
+    const urlInfo = base.urlInfo;
 
     // Keep runtimeUrl and spawned runtime's host/port in sync by default.
     if (args.length > 0 && args[0] === "serve" && urlInfo) {
@@ -376,31 +513,17 @@ export default class AiTasksBoardPlugin extends Plugin {
         args.push("--port", String(urlInfo.port));
       }
     }
-
-    const pluginDir = this.getPluginDir();
-    const cwd = this.settings.runtimeCwd.trim() || (cmd === bundledCmd ? pluginDir || undefined : undefined);
-    const env: Record<string, string> = { ...(process.env as Record<string, string>) };
-    if (urlInfo) {
-      env.AI_TASKS_HOST = urlInfo.host;
-      env.AI_TASKS_PORT = String(urlInfo.port);
-    }
-    const agentDir = this.settings.agentDir?.trim() || this.getDefaultAgentDir();
-    if (agentDir) {
-      env.AI_TASKS_AGENT_DIR = agentDir;
-    }
-    const codexBin = this.settings.codexCliPath?.trim();
-    if (codexBin) {
-      env.AI_TASKS_CODEX_BIN = codexBin;
-    }
+    const agentDir = base.env.AI_TASKS_AGENT_DIR ?? null;
+    const codexBin = base.env.AI_TASKS_CODEX_BIN ?? null;
 
     void appendAiTasksLog(this, {
       type: "runtime.start.request",
       runtime_url: this.settings.runtimeUrl,
-      cmd,
+      cmd: base.cmd,
       args,
-      cwd: cwd ?? null,
-      bundled_cmd: bundledCmd ?? null,
-      used_bundled_cmd: bundledCmd ? cmd === bundledCmd : null,
+      cwd: base.cwd ?? null,
+      bundled_cmd: base.bundledCmd ?? null,
+      used_bundled_cmd: base.bundledCmd ? base.cmd === base.bundledCmd : null,
       host: urlInfo?.host ?? null,
       port: urlInfo?.port ?? null,
       agent_dir: agentDir ?? null,
@@ -408,11 +531,11 @@ export default class AiTasksBoardPlugin extends Plugin {
     });
 
     try {
-      const child = spawn(cmd, args, {
-        cwd,
+      const child = spawn(base.cmd, args, {
+        cwd: base.cwd,
         windowsHide: true,
         shell: false,
-        env,
+        env: base.env,
       });
       this.runtimeProcess = child;
       this.runtimePid = child.pid ?? null;
@@ -473,14 +596,15 @@ export default class AiTasksBoardPlugin extends Plugin {
       });
 
       new Notice(child.pid ? this.t("notice.runtime.starting_pid", { pid: child.pid }) : this.t("notice.runtime.starting"));
+      await this.startSessionsWatcherIfNeeded(base);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       void appendAiTasksLog(this, {
         type: "runtime.start.exception",
         runtime_url: this.settings.runtimeUrl,
-        cmd,
+        cmd: base.cmd,
         args,
-        cwd: cwd ?? null,
+        cwd: base.cwd ?? null,
         error: msg,
       });
       new Notice(this.t("notice.runtime.start_failed", { error: msg }));
@@ -503,6 +627,10 @@ export default class AiTasksBoardPlugin extends Plugin {
     if (this.runtimeProcess && this.runtimeProcess.exitCode === null) {
       this.runtimeProcess.kill();
       void appendAiTasksLog(this, { type: "runtime.stop.killed", pid: this.runtimePid ?? null });
+      requested = true;
+    }
+
+    if (this.stopSessionsWatcher()) {
       requested = true;
     }
 
