@@ -1,6 +1,6 @@
 import { Editor, MarkdownView, Menu, Notice, Plugin, TFile, getLanguage } from "obsidian";
 import { spawn, type ChildProcess } from "child_process";
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, unlinkSync } from "fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { appendAiTasksLog } from "./ai_log";
@@ -130,7 +130,19 @@ export default class AiTasksBoardPlugin extends Plugin {
   }
 
   getPluginVersion(): string {
-    return this.manifest?.version || "";
+    const fallback = this.manifest?.version || "";
+    const pluginDir = this.getPluginDir();
+    if (!pluginDir) return fallback;
+    try {
+      const raw = readFileSync(join(pluginDir, "manifest.json"), "utf8");
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      if (typeof parsed.version === "string" && parsed.version.trim()) {
+        return parsed.version.trim();
+      }
+    } catch {
+      // ignore and fall back to in-memory manifest version
+    }
+    return fallback;
   }
 
   private getPluginDir(): string | null {
