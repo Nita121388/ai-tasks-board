@@ -331,8 +331,31 @@ def _extract_tags(text: str) -> List[str]:
 
 
 def _tokenize(s: str) -> List[str]:
-    # Lowercase word-ish tokens; keep CJK chunks too.
-    return re.findall(r"[A-Za-z0-9_\\-]{2,}|[\\u4e00-\\u9fff]{1,}", s.lower())
+    """Tokenize for fuzzy matching.
+
+    - Latin/number chunks: keep (>=2 chars)
+    - CJK chunks: add overlapping bigrams so Chinese without spaces can match.
+    """
+
+    s = (s or "").lower()
+    raw: List[str] = []
+    raw.extend(re.findall(r"[a-z0-9_\\-]{2,}", s))
+    for chunk in re.findall(r"[\\u4e00-\\u9fff]+", s):
+        if len(chunk) == 1:
+            raw.append(chunk)
+            continue
+        if len(chunk) <= 6:
+            raw.append(chunk)
+        raw.extend(chunk[i : i + 2] for i in range(len(chunk) - 1))
+
+    out: List[str] = []
+    seen = set()
+    for t in raw:
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
 
 
 def _best_match_task(draft: str, tasks: List[TaskSummary]) -> Tuple[Optional[TaskSummary], float]:

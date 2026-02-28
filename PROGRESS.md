@@ -45,3 +45,4 @@
 - Obsidian plugin: redesigned the bulk-import modal UI (clearer hierarchy, card-style layout, improved task preview rows).
 - Obsidian plugin: bulk-import modal now surfaces local Codex session capture info (`~/.codex/sessions`) including directory, total/today rollout counts, latest session ID/time.
 - Obsidian plugin: added session panel refresh controls in bulk-import modal (manual refresh + optional 30s auto-refresh, with timer cleanup on modal close).
+- Sessions -> task linking: default match mode changed to `hybrid` (AI-first + heuristic fallback) so sessions can still link even when Codex CLI isn't available; improved CJK tokenization for heuristic matching and shortened auto-created session task titles; UI clamps long titles to 2 lines.

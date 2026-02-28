@@ -13,6 +13,10 @@ Return ONLY valid JSON with this shape:
   "confidence": number
 }
 
+Rules:
+- Task title should be short and specific (<= 16 Chinese chars or <= 80 Latin chars).
+- If action=update, keep the existing task title unless the user explicitly asks to rename it.
+
 Mode hint: {{mode}}
 Existing tasks (JSON):
 {{tasks_json}}

@@ -606,7 +606,9 @@ export default class AiTasksBoardPlugin extends Plugin {
         return quick;
       }
 
-      const args = ["sessions", "sync", vaultPath, "--board-path", this.settings.boardPath];
+      // Hybrid = AI-first (when available) + heuristic fallback. This prevents "no matches"
+      // when Codex CLI isn't installed/configured on the machine.
+      const args = ["sessions", "sync", vaultPath, "--board-path", this.settings.boardPath, "--match-mode", "hybrid"];
       void appendAiTasksLog(this, {
         type: "sessions.sync.once.request",
         cmd: base.cmd,
@@ -703,7 +705,9 @@ export default class AiTasksBoardPlugin extends Plugin {
       return;
     }
 
-    const args = ["sessions", "watch", vaultPath, "--board-path", this.settings.boardPath];
+    // Hybrid = AI-first (when available) + heuristic fallback. This prevents "no matches"
+    // when Codex CLI isn't installed/configured on the machine.
+    const args = ["sessions", "watch", vaultPath, "--board-path", this.settings.boardPath, "--match-mode", "hybrid"];
     void appendAiTasksLog(this, {
       type: "sessions.watch.start.request",
       cmd: base.cmd,

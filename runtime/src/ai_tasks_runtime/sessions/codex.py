@@ -246,6 +246,39 @@ def _fallback_summary(messages: List[SessionMessage]) -> Optional[str]:
     return first[:120] if first else None
 
 
+def _compact_title(text: Optional[str], *, fallback: str, max_len: int = 60) -> str:
+    """Derive a short task title from a session summary (or other text)."""
+
+    s = (text or "").strip()
+    if not s:
+        return fallback
+
+    s = s.splitlines()[0].strip()
+    s = re.sub(r"^(summary|摘要|总结|概述)\\s*[:：]\\s*", "", s, flags=re.IGNORECASE).strip()
+    s = re.sub(r"\\s+", " ", s).strip()
+    if not s:
+        return fallback
+
+    # For Chinese, shorter titles are easier to scan in the board UI.
+    effective_max = max_len
+    if re.search(r"[\\u4e00-\\u9fff]", s):
+        effective_max = min(effective_max, 28)
+
+    # Prefer cutting at a natural boundary when we need to shorten.
+    if len(s) > effective_max:
+        for pat in (r"[。.!?！？]\\s*", r"[；;]\\s*", r"[，,、:]\\s*"):
+            m = re.search(pat, s)
+            if m and m.end() >= 8 and m.end() <= effective_max:
+                s = s[: m.end()].strip()
+                break
+
+    if len(s) > effective_max:
+        cut = max(1, effective_max - 3)
+        s = s[:cut].rstrip() + "..."
+
+    return s
+
+
 def _duration_sec(started_at: Optional[str], ended_at: Optional[str]) -> Optional[int]:
     if not started_at or not ended_at:
         return None
@@ -278,7 +311,33 @@ def _parse_json_obj(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _tokenize(s: str) -> List[str]:
-    return re.findall(r"[A-Za-z0-9_\\-]{2,}|[\\u4e00-\\u9fff]{1,}", (s or "").lower())
+    """Tokenize for fuzzy matching.
+
+    - Latin/number chunks: keep (>=2 chars)
+    - CJK chunks: add overlapping bigrams so Chinese without spaces can match.
+    """
+
+    s = (s or "").lower()
+    raw: List[str] = []
+    raw.extend(re.findall(r"[a-z0-9_\\-]{2,}", s))
+    for chunk in re.findall(r"[\\u4e00-\\u9fff]+", s):
+        if len(chunk) == 1:
+            raw.append(chunk)
+            continue
+        # Keep the full chunk when short (helps exact phrase matches).
+        if len(chunk) <= 6:
+            raw.append(chunk)
+        raw.extend(chunk[i : i + 2] for i in range(len(chunk) - 1))
+
+    # Dedup while preserving order.
+    out: List[str] = []
+    seen = set()
+    for t in raw:
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
 
 
 def _jaccard(a_tokens: List[str], b_tokens: List[str]) -> float:
@@ -435,7 +494,7 @@ def sync_codex_sessions(
     stable_after_s: int = 10,
     link_board: bool = True,
     board_rel_path: str = "Tasks/Boards/Board.md",
-    match_mode: str = "ai",
+    match_mode: str = "hybrid",
     match_threshold: float = 0.18,
     ai_confidence_threshold: float = 0.65,
     ai_top_k: int = 20,
@@ -533,9 +592,9 @@ def sync_codex_sessions(
                 if session_ref in board_content:
                     skipped_already_linked += 1
                 else:
-                    mode = (match_mode or "ai").strip().lower()
+                    mode = (match_mode or "hybrid").strip().lower()
                     if mode not in ("heuristic", "ai", "hybrid"):
-                        mode = "ai"
+                        mode = "hybrid"
 
                     match_uuid: Optional[str] = None
                     match_method: Optional[str] = None  # "ai" | "heuristic"
@@ -590,8 +649,7 @@ def sync_codex_sessions(
 
                     if not should_link:
                         # Strategy (per Nita): create an Unassigned task for unmatched sessions.
-                        title = str(payload.get("summary") or "").strip() or session_ref
-                        title = title.splitlines()[0][:80]
+                        title = _compact_title(str(payload.get("summary") or ""), fallback=session_ref, max_len=60)
                         snippets = payload.get("snippets") or []
 
                         body_lines: List[str] = [f"Session: {session_ref}", ""]
