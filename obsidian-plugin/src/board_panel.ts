@@ -16,6 +16,14 @@ type SessionInfo = {
   missing: boolean;
 };
 
+type CapturedSessionInfo = {
+  ref: string;
+  summary: string | null;
+  snippets: string[];
+  endedAt: string | null;
+  mtime: number;
+};
+
 function todayLocalDate(): string {
   const d = new Date();
   const yyyy = String(d.getFullYear());
@@ -170,6 +178,125 @@ export class BoardPanel {
     }
 
     return out;
+  }
+
+  private async loadCapturedSessions(limit = 12): Promise<CapturedSessionInfo[]> {
+    const files = this.plugin.app.vault
+      .getFiles()
+      .filter((f) => /^Sessions\/[^/]+\/[^/]+\.json$/i.test(f.path))
+      .sort((a, b) => b.stat.mtime - a.stat.mtime)
+      .slice(0, Math.max(1, limit));
+
+    const out: CapturedSessionInfo[] = [];
+    for (const f of files) {
+      const parts = f.path.split("/");
+      const source = parts[1] ?? "unknown";
+      const ref = `${source}:${f.basename}`;
+
+      try {
+        const raw = await this.plugin.app.vault.read(f);
+        const data = JSON.parse(raw) as {
+          summary?: unknown;
+          snippets?: unknown;
+          ended_at?: unknown;
+          started_at?: unknown;
+        };
+
+        const summary = typeof data.summary === "string" ? data.summary.trim() : "";
+        const snippetsRaw = Array.isArray(data.snippets) ? data.snippets : [];
+        const snippets: string[] = [];
+        for (const sn of snippetsRaw.slice(0, 4)) {
+          if (!sn || typeof sn !== "object") continue;
+          const role = typeof (sn as { role?: unknown }).role === "string" ? String((sn as { role?: unknown }).role) : "";
+          const text = typeof (sn as { text?: unknown }).text === "string" ? String((sn as { text?: unknown }).text) : "";
+          const one = text.replace(/\s+/g, " ").trim();
+          if (!one) continue;
+          snippets.push(role ? `${role}: ${one}` : one);
+        }
+
+        const endedAt =
+          typeof data.ended_at === "string"
+            ? data.ended_at
+            : typeof data.started_at === "string"
+              ? data.started_at
+              : null;
+
+        out.push({
+          ref,
+          summary: summary || null,
+          snippets,
+          endedAt,
+          mtime: f.stat.mtime,
+        });
+      } catch {
+        out.push({
+          ref,
+          summary: null,
+          snippets: [],
+          endedAt: null,
+          mtime: f.stat.mtime,
+        });
+      }
+    }
+
+    return out.sort((a, b) => {
+      const ta = a.endedAt ? Date.parse(a.endedAt) : a.mtime;
+      const tb = b.endedAt ? Date.parse(b.endedAt) : b.mtime;
+      const sa = Number.isNaN(ta) ? a.mtime : ta;
+      const sb = Number.isNaN(tb) ? b.mtime : tb;
+      return sb - sa;
+    });
+  }
+
+  private formatSessionTime(ts: string | null, fallbackMtime: number): string {
+    const parsed = ts ? Date.parse(ts) : NaN;
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toLocaleString();
+    }
+    return new Date(fallbackMtime).toLocaleString();
+  }
+
+  private renderCapturedSessions(root: HTMLElement, infos: CapturedSessionInfo[]): void {
+    const box = root.createDiv({ cls: "ai-tasks-captured-sessions" });
+    const head = box.createDiv({ cls: "ai-tasks-captured-sessions-head" });
+    head.createDiv({
+      cls: "ai-tasks-captured-sessions-title",
+      text: this.plugin.t("board.captured_sessions.title"),
+    });
+    head.createDiv({ cls: "ai-tasks-captured-sessions-count", text: String(infos.length) });
+
+    const list = box.createDiv({ cls: "ai-tasks-captured-sessions-list" });
+    if (!infos.length) {
+      list.createDiv({
+        cls: "ai-tasks-captured-session-empty",
+        text: this.plugin.t("board.captured_sessions.empty"),
+      });
+      return;
+    }
+
+    for (const info of infos) {
+      const row = list.createDiv({ cls: "ai-tasks-captured-session" });
+      row.createDiv({ cls: "ai-tasks-captured-session-ref", text: info.ref });
+      row.createDiv({
+        cls: "ai-tasks-captured-session-time",
+        text: this.plugin.t("board.captured_sessions.time", {
+          ts: this.formatSessionTime(info.endedAt, info.mtime),
+        }),
+      });
+      if (info.summary) {
+        row.createDiv({ cls: "ai-tasks-captured-session-summary", text: info.summary });
+      }
+      if (info.snippets.length > 0) {
+        const snip = row.createEl("pre", { cls: "ai-tasks-captured-session-snippets" });
+        snip.textContent = info.snippets.join("\n");
+      }
+      if (!info.summary && info.snippets.length === 0) {
+        row.createDiv({
+          cls: "ai-tasks-captured-session-empty",
+          text: this.plugin.t("board.task.sessions.empty"),
+        });
+      }
+    }
   }
 
   private renderHeader(root: HTMLElement, allTags: string[], viewMode: "kanban" | "split" | "md"): void {
@@ -561,154 +688,155 @@ export class BoardPanel {
         const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
         for (const t of tasks) this.createCard(list, t, onMove, onArchive, onDelete, onEdit);
       }
-      return;
-    }
+    } else {
+      // Split layout: left list (grouped by status) + right detail pane.
+      const split = root.createDiv({ cls: "ai-tasks-board-split" });
+      const leftPane = split.createDiv({ cls: "ai-tasks-board-split-left" });
+      const rightPane = split.createDiv({ cls: "ai-tasks-board-split-right" });
 
-    // Split layout: left list (grouped by status) + right detail pane.
-    const split = root.createDiv({ cls: "ai-tasks-board-split" });
-    const leftPane = split.createDiv({ cls: "ai-tasks-board-split-left" });
-    const rightPane = split.createDiv({ cls: "ai-tasks-board-split-right" });
+      const taskByUuid = new Map<string, BoardTask>();
+      for (const t of allTasks) taskByUuid.set(t.uuid, t);
 
-    const taskByUuid = new Map<string, BoardTask>();
-    for (const t of allTasks) taskByUuid.set(t.uuid, t);
-
-    const visible: BoardTask[] = [];
-    for (const status of STATUSES) {
-      const section = parsed.sections.get(status);
-      visible.push(...(section?.tasks ?? []).filter((t) => this.shouldShowTask(t)));
-    }
-
-    if (this.selectedUuid && !taskByUuid.has(this.selectedUuid)) {
-      this.selectedUuid = null;
-    }
-    if (this.selectedUuid && !visible.some((t) => t.uuid === this.selectedUuid)) {
-      this.selectedUuid = null;
-    }
-    if (!this.selectedUuid && visible.length > 0) {
-      this.selectedUuid = visible[0]?.uuid ?? null;
-    }
-
-    for (const status of STATUSES) {
-      const section = parsed.sections.get(status);
-      const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
-
-      const secEl = leftPane.createDiv({ cls: "ai-tasks-split-section" });
-      const secHead = secEl.createDiv({ cls: "ai-tasks-split-section-head" });
-      secHead.createDiv({ cls: "ai-tasks-split-section-title", text: status });
-      secHead.createDiv({ cls: "ai-tasks-split-section-count", text: String(tasks.length) });
-      const addBtn = secHead.createEl("button", { cls: "ai-tasks-split-add", text: this.plugin.t("board.btn.add") });
-      addBtn.addEventListener("click", () => onCreate(status));
-
-      const list = secEl.createDiv({ cls: "ai-tasks-split-tasklist" });
-      this.attachSplitDnD(list, status, onMove);
-
-      for (const t of tasks) {
-        const row = list.createDiv({ cls: "ai-tasks-split-task", attr: { "data-uuid": t.uuid } });
-        if (t.uuid === this.selectedUuid) row.classList.add("is-selected");
-        row.draggable = true;
-
-        row.createDiv({ cls: "ai-tasks-split-task-title", text: t.title });
-        if (t.tags.length > 0) {
-          row.createDiv({ cls: "ai-tasks-split-task-tags", text: t.tags.join(", ") });
-        }
-
-        row.addEventListener("click", async (ev) => {
-          if ((ev.target as HTMLElement | null)?.closest?.("select, button, a, input, textarea")) return;
-          this.selectedUuid = t.uuid;
-          await this.render(root);
-        });
-
-        row.addEventListener("dragstart", (ev) => {
-          ev.dataTransfer?.setData("application/x-ai-task-uuid", t.uuid);
-          ev.dataTransfer?.setDragImage(row, 8, 8);
-          row.classList.add("is-dragging");
-        });
-        row.addEventListener("dragend", () => {
-          row.classList.remove("is-dragging");
-        });
+      const visible: BoardTask[] = [];
+      for (const status of STATUSES) {
+        const section = parsed.sections.get(status);
+        visible.push(...(section?.tasks ?? []).filter((t) => this.shouldShowTask(t)));
       }
-    }
 
-    const selected = this.selectedUuid ? taskByUuid.get(this.selectedUuid) ?? null : null;
-    if (!selected) {
-      rightPane.createDiv({ cls: "ai-tasks-detail-empty", text: this.plugin.t("board.task.select_to_view") });
-      return;
-    }
+      if (this.selectedUuid && !taskByUuid.has(this.selectedUuid)) {
+        this.selectedUuid = null;
+      }
+      if (this.selectedUuid && !visible.some((t) => t.uuid === this.selectedUuid)) {
+        this.selectedUuid = null;
+      }
+      if (!this.selectedUuid && visible.length > 0) {
+        this.selectedUuid = visible[0]?.uuid ?? null;
+      }
 
-    const detail = rightPane.createDiv({ cls: "ai-tasks-detail" });
-    detail.createDiv({ cls: "ai-tasks-detail-title", text: selected.title });
-    detail.createDiv({ cls: "ai-tasks-detail-uuid", text: selected.uuid });
+      for (const status of STATUSES) {
+        const section = parsed.sections.get(status);
+        const tasks = (section?.tasks ?? []).filter((t) => this.shouldShowTask(t));
 
-    const meta = detail.createDiv({ cls: "ai-tasks-detail-meta" });
-    const statusSelect = meta.createEl("select", { cls: "ai-tasks-detail-status" });
-    for (const s of STATUSES) statusSelect.add(new Option(s, s));
-    statusSelect.value = selected.status;
-    statusSelect.addEventListener("change", async () => {
-      await onMove(selected.uuid, statusSelect.value as BoardStatus, null);
-    });
+        const secEl = leftPane.createDiv({ cls: "ai-tasks-split-section" });
+        const secHead = secEl.createDiv({ cls: "ai-tasks-split-section-head" });
+        secHead.createDiv({ cls: "ai-tasks-split-section-title", text: status });
+        secHead.createDiv({ cls: "ai-tasks-split-section-count", text: String(tasks.length) });
+        const addBtn = secHead.createEl("button", { cls: "ai-tasks-split-add", text: this.plugin.t("board.btn.add") });
+        addBtn.addEventListener("click", () => onCreate(status));
 
-    const editBtn = meta.createEl("button", { text: this.plugin.t("btn.edit"), cls: "ai-tasks-detail-edit" });
-    editBtn.addEventListener("click", () => onEdit(selected));
+        const list = secEl.createDiv({ cls: "ai-tasks-split-tasklist" });
+        this.attachSplitDnD(list, status, onMove);
 
-    const deleteBtn = meta.createEl("button", { text: this.plugin.t("btn.delete"), cls: "ai-tasks-detail-delete" });
-    deleteBtn.addEventListener("click", async () => {
-      await onDelete(selected.uuid);
-    });
+        for (const t of tasks) {
+          const row = list.createDiv({ cls: "ai-tasks-split-task", attr: { "data-uuid": t.uuid } });
+          if (t.uuid === this.selectedUuid) row.classList.add("is-selected");
+          row.draggable = true;
 
-    if (selected.status === "Done") {
-      const archiveBtn = meta.createEl("button", { text: this.plugin.t("btn.archive"), cls: "ai-tasks-detail-archive" });
-      archiveBtn.addEventListener("click", async () => {
-        await onArchive(selected.uuid);
-      });
-    }
+          row.createDiv({ cls: "ai-tasks-split-task-title", text: t.title });
+          if (t.tags.length > 0) {
+            row.createDiv({ cls: "ai-tasks-split-task-tags", text: t.tags.join(", ") });
+          }
 
-    if (selected.tags.length > 0) {
-      const tags = detail.createDiv({ cls: "ai-tasks-detail-tags" });
-      for (const tag of selected.tags) tags.createSpan({ cls: "ai-task-tag", text: tag });
-    }
+          row.addEventListener("click", async (ev) => {
+            if ((ev.target as HTMLElement | null)?.closest?.("select, button, a, input, textarea")) return;
+            this.selectedUuid = t.uuid;
+            await this.render(root);
+          });
 
-    const body = detail.createDiv({ cls: "ai-tasks-detail-body" });
-    const bodyText = this.extractBodyFromBlock(selected.rawBlock);
-    const pre = body.createEl("pre", { cls: "ai-tasks-detail-body-pre" });
-    pre.textContent = bodyText || this.plugin.t("board.task.no_details");
+          row.addEventListener("dragstart", (ev) => {
+            ev.dataTransfer?.setData("application/x-ai-task-uuid", t.uuid);
+            ev.dataTransfer?.setDragImage(row, 8, 8);
+            row.classList.add("is-dragging");
+          });
+          row.addEventListener("dragend", () => {
+            row.classList.remove("is-dragging");
+          });
+        }
+      }
 
-    const sessionRefs = selected.sessions ?? [];
-    if (sessionRefs.length > 0) {
-      const sessionsBox = detail.createDiv({ cls: "ai-tasks-detail-sessions" });
-      sessionsBox.createDiv({
-        cls: "ai-tasks-detail-section-title",
-        text: this.plugin.t("board.task.sessions.title"),
-      });
-
-      const infos = await this.loadSessionInfos(sessionRefs);
-      if (!infos.length) {
-        sessionsBox.createDiv({ cls: "ai-tasks-detail-session-empty", text: this.plugin.t("board.task.sessions.empty") });
+      const selected = this.selectedUuid ? taskByUuid.get(this.selectedUuid) ?? null : null;
+      if (!selected) {
+        rightPane.createDiv({ cls: "ai-tasks-detail-empty", text: this.plugin.t("board.task.select_to_view") });
       } else {
-        for (const info of infos) {
-          const row = sessionsBox.createDiv({ cls: "ai-tasks-detail-session" });
-          row.createDiv({ cls: "ai-tasks-detail-session-ref", text: info.ref });
-          if (info.missing) {
-            row.createDiv({
-              cls: "ai-tasks-detail-session-missing",
-              text: this.plugin.t("board.task.sessions.missing"),
-            });
-            continue;
-          }
-          if (info.summary) {
-            row.createDiv({ cls: "ai-tasks-detail-session-summary", text: info.summary });
-          }
-          if (info.snippets.length > 0) {
-            const snip = row.createEl("pre", { cls: "ai-tasks-detail-session-snippets" });
-            snip.textContent = info.snippets.join("\n");
-          }
-          if (!info.summary && info.snippets.length === 0) {
-            row.createDiv({
-              cls: "ai-tasks-detail-session-empty",
-              text: this.plugin.t("board.task.sessions.empty"),
-            });
+        const detail = rightPane.createDiv({ cls: "ai-tasks-detail" });
+        detail.createDiv({ cls: "ai-tasks-detail-title", text: selected.title });
+        detail.createDiv({ cls: "ai-tasks-detail-uuid", text: selected.uuid });
+
+        const meta = detail.createDiv({ cls: "ai-tasks-detail-meta" });
+        const statusSelect = meta.createEl("select", { cls: "ai-tasks-detail-status" });
+        for (const s of STATUSES) statusSelect.add(new Option(s, s));
+        statusSelect.value = selected.status;
+        statusSelect.addEventListener("change", async () => {
+          await onMove(selected.uuid, statusSelect.value as BoardStatus, null);
+        });
+
+        const editBtn = meta.createEl("button", { text: this.plugin.t("btn.edit"), cls: "ai-tasks-detail-edit" });
+        editBtn.addEventListener("click", () => onEdit(selected));
+
+        const deleteBtn = meta.createEl("button", { text: this.plugin.t("btn.delete"), cls: "ai-tasks-detail-delete" });
+        deleteBtn.addEventListener("click", async () => {
+          await onDelete(selected.uuid);
+        });
+
+        if (selected.status === "Done") {
+          const archiveBtn = meta.createEl("button", { text: this.plugin.t("btn.archive"), cls: "ai-tasks-detail-archive" });
+          archiveBtn.addEventListener("click", async () => {
+            await onArchive(selected.uuid);
+          });
+        }
+
+        if (selected.tags.length > 0) {
+          const tags = detail.createDiv({ cls: "ai-tasks-detail-tags" });
+          for (const tag of selected.tags) tags.createSpan({ cls: "ai-task-tag", text: tag });
+        }
+
+        const body = detail.createDiv({ cls: "ai-tasks-detail-body" });
+        const bodyText = this.extractBodyFromBlock(selected.rawBlock);
+        const pre = body.createEl("pre", { cls: "ai-tasks-detail-body-pre" });
+        pre.textContent = bodyText || this.plugin.t("board.task.no_details");
+
+        const sessionRefs = selected.sessions ?? [];
+        if (sessionRefs.length > 0) {
+          const sessionsBox = detail.createDiv({ cls: "ai-tasks-detail-sessions" });
+          sessionsBox.createDiv({
+            cls: "ai-tasks-detail-section-title",
+            text: this.plugin.t("board.task.sessions.title"),
+          });
+
+          const infos = await this.loadSessionInfos(sessionRefs);
+          if (!infos.length) {
+            sessionsBox.createDiv({ cls: "ai-tasks-detail-session-empty", text: this.plugin.t("board.task.sessions.empty") });
+          } else {
+            for (const info of infos) {
+              const row = sessionsBox.createDiv({ cls: "ai-tasks-detail-session" });
+              row.createDiv({ cls: "ai-tasks-detail-session-ref", text: info.ref });
+              if (info.missing) {
+                row.createDiv({
+                  cls: "ai-tasks-detail-session-missing",
+                  text: this.plugin.t("board.task.sessions.missing"),
+                });
+                continue;
+              }
+              if (info.summary) {
+                row.createDiv({ cls: "ai-tasks-detail-session-summary", text: info.summary });
+              }
+              if (info.snippets.length > 0) {
+                const snip = row.createEl("pre", { cls: "ai-tasks-detail-session-snippets" });
+                snip.textContent = info.snippets.join("\n");
+              }
+              if (!info.summary && info.snippets.length === 0) {
+                row.createDiv({
+                  cls: "ai-tasks-detail-session-empty",
+                  text: this.plugin.t("board.task.sessions.empty"),
+                });
+              }
+            }
           }
         }
       }
     }
+
+    const capturedSessions = await this.loadCapturedSessions(12);
+    this.renderCapturedSessions(root, capturedSessions);
   }
 }

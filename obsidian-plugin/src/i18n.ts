@@ -189,6 +189,9 @@ const STRINGS = {
   "board.task.sessions.title": { en: "AI Sessions", zh: "AI 会话" },
   "board.task.sessions.empty": { en: "No session info.", zh: "无会话信息。" },
   "board.task.sessions.missing": { en: "Session file not found.", zh: "未找到会话文件。" },
+  "board.captured_sessions.title": { en: "Captured Sessions", zh: "捕捉到的会话" },
+  "board.captured_sessions.empty": { en: "No captured sessions yet.", zh: "暂未捕捉到会话内容。" },
+  "board.captured_sessions.time": { en: "Time: {{ts}}", zh: "时间：{{ts}}" },
 
   // Draft modal
   "draft_modal.title.add": { en: "AI Tasks: Add to board", zh: "AI Tasks：添加到看板" },

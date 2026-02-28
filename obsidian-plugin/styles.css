@@ -149,6 +149,90 @@
   padding: 12px;
 }
 
+.ai-tasks-captured-sessions {
+  margin-top: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--background-secondary);
+}
+
+.ai-tasks-captured-sessions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ai-tasks-captured-sessions-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.ai-tasks-captured-sessions-count {
+  font-size: 11px;
+  opacity: 0.85;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.ai-tasks-captured-sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.ai-tasks-captured-session {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--background-primary);
+}
+
+.ai-tasks-captured-session-ref {
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  opacity: 0.88;
+}
+
+.ai-tasks-captured-session-time {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.78;
+}
+
+.ai-tasks-captured-session-summary {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ai-tasks-captured-session-snippets {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ai-tasks-captured-session-empty {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .ai-tasks-split-section {
   margin-bottom: 12px;
 }
