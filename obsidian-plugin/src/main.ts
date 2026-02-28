@@ -291,9 +291,12 @@ export default class AiTasksBoardPlugin extends Plugin {
 
     this.addSettingTab(new AiTasksBoardSettingTab(this.app, this));
 
-    // Runtime auto-start: run in background after layout is ready.
+    // Runtime auto-start:
+    // 1) run once immediately (covers plugin hot-reload where onLayoutReady may already have passed)
+    // 2) run again when layout is ready (cold-start path)
     // - Avoids port conflicts by probing runtimeUrl first.
     // - Default enabled for "formal release" usability.
+    void this.autoStartRuntimeIfNeeded();
     this.app.workspace.onLayoutReady(() => {
       void this.autoStartRuntimeIfNeeded();
     });
