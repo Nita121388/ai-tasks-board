@@ -91,6 +91,9 @@ npm run build
 - Command: `AI Tasks: Import tasks (AI)`
   - Paste a messy task list and let AI split it into multiple tasks (titles + tags) before writing to `Board.md`.
   - Uses tag presets from plugin settings (one tag per line).
+  - The import modal now includes a local Codex session capture panel (from `~/.codex/sessions`):
+    - shows session directory, total/today rollout counts, latest session ID/time
+    - supports manual refresh and optional auto-refresh every 30 seconds
 - Context menu (any note): select text -> right click
   - `AI Tasks: Add to board`
   - `AI Tasks: Update board (AI)`

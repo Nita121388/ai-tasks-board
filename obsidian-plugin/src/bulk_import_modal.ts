@@ -1,4 +1,7 @@
 import { Modal, Notice, TFile } from "obsidian";
+import { existsSync, readdirSync, type Dirent } from "fs";
+import { homedir } from "os";
+import { basename, join } from "path";
 import type AiTasksBoardPlugin from "./main";
 import type { AiModelConfig } from "./settings";
 import { insertTaskBlock, normalizeEscapedNewlines, parseBoard } from "./board";
@@ -32,7 +35,91 @@ type BoardSplitResponse = {
   ai_fallback?: string | null;
 };
 
+type LocalSessionInfo = {
+  rootPath: string;
+  available: boolean;
+  totalCount: number;
+  todayCount: number;
+  latestSessionId: string | null;
+  latestTime: string | null;
+};
+
 const STATUSES: BoardStatus[] = ["Unassigned", "Todo", "Doing", "Review", "Done"];
+const ROLLOUT_FILE_RE = /^rollout-.*\.jsonl$/i;
+const SESSION_ID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+function safeReadDir(path: string): Dirent[] {
+  try {
+    return readdirSync(path, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function extractSessionId(name: string): string | null {
+  const m = name.match(SESSION_ID_RE);
+  return m?.[1]?.toLowerCase() ?? null;
+}
+
+function parseRolloutTime(name: string): string | null {
+  const m = name.match(/^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-/);
+  if (!m) return null;
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+}
+
+function collectLocalSessionInfo(now = new Date()): LocalSessionInfo {
+  const rootPath = join(homedir(), ".codex", "sessions");
+  if (!existsSync(rootPath)) {
+    return {
+      rootPath,
+      available: false,
+      totalCount: 0,
+      todayCount: 0,
+      latestSessionId: null,
+      latestTime: null,
+    };
+  }
+
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const todayRel = `${yyyy}/${mm}/${dd}/`;
+
+  let totalCount = 0;
+  let todayCount = 0;
+  let latestKey = "";
+
+  const years = safeReadDir(rootPath).filter((d) => d.isDirectory() && /^\d{4}$/.test(d.name));
+  for (const y of years) {
+    const yearPath = join(rootPath, y.name);
+    const months = safeReadDir(yearPath).filter((d) => d.isDirectory() && /^\d{2}$/.test(d.name));
+    for (const m of months) {
+      const monthPath = join(yearPath, m.name);
+      const days = safeReadDir(monthPath).filter((d) => d.isDirectory() && /^\d{2}$/.test(d.name));
+      for (const d of days) {
+        const dayRel = `${y.name}/${m.name}/${d.name}/`;
+        const dayPath = join(monthPath, d.name);
+        for (const f of safeReadDir(dayPath)) {
+          if (!f.isFile() || !ROLLOUT_FILE_RE.test(f.name)) continue;
+          totalCount += 1;
+          if (dayRel === todayRel) todayCount += 1;
+          const key = `${dayRel}${f.name}`;
+          if (!latestKey || key > latestKey) latestKey = key;
+        }
+      }
+    }
+  }
+
+  const latestFileName = latestKey ? basename(latestKey) : "";
+  return {
+    rootPath,
+    available: true,
+    totalCount,
+    todayCount,
+    latestSessionId: latestFileName ? extractSessionId(latestFileName) : null,
+    latestTime: latestFileName ? parseRolloutTime(latestFileName) : null,
+  };
+}
 
 function normalizeStatus(s: string | null | undefined): BoardStatus {
   const t = (s ?? "").trim();
@@ -147,6 +234,11 @@ export class AiTasksBulkImportModal extends Modal {
   private tasks: SplitTask[] = [];
   private proposalMeta: Pick<BoardSplitResponse, "engine" | "provider" | "thread_id" | "ai_fallback" | "reasoning" | "confidence"> | null = null;
 
+  private autoRefreshOn = false;
+  private autoRefreshTimer: number | null = null;
+  private sessionInfoEl: HTMLElement | null = null;
+  private sessionMetaEl: HTMLElement | null = null;
+  private sessionAutoBtn: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private listEl: HTMLElement | null = null;
 
@@ -162,35 +254,134 @@ export class AiTasksBulkImportModal extends Modal {
     contentEl.empty();
     contentEl.addClass("ai-tasks-bulk-import-modal");
 
-    contentEl.createEl("h2", { text: this.plugin.t("bulk_modal.title") });
+    contentEl.createEl("h2", { cls: "ai-tasks-bulk-heading", text: this.plugin.t("bulk_modal.title") });
+    contentEl.createDiv({ cls: "ai-tasks-bulk-subtitle", text: this.plugin.t("bulk_modal.subtitle") });
 
-    const draftBox = contentEl.createDiv({ cls: "ai-tasks-draft-box" });
-    draftBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("bulk_modal.label.text") });
-    const draftInput = draftBox.createEl("textarea", { cls: "ai-tasks-draft-textarea" });
+    const sessionCard = contentEl.createDiv({ cls: "ai-tasks-bulk-session-card" });
+    const sessionHead = sessionCard.createDiv({ cls: "ai-tasks-bulk-session-head" });
+    sessionHead.createDiv({ cls: "ai-tasks-bulk-session-title", text: this.plugin.t("bulk_modal.session.title") });
+    const sessionActions = sessionHead.createDiv({ cls: "ai-tasks-bulk-session-actions" });
+    const refreshBtn = sessionActions.createEl("button", {
+      cls: "ai-tasks-bulk-session-refresh",
+      text: this.plugin.t("bulk_modal.session.btn_refresh"),
+    });
+    this.sessionAutoBtn = sessionActions.createEl("button", {
+      cls: "ai-tasks-bulk-session-refresh",
+      text: this.getAutoRefreshBtnText(),
+    });
+    this.sessionMetaEl = sessionCard.createDiv({ cls: "ai-tasks-bulk-session-meta" });
+    this.sessionInfoEl = sessionCard.createDiv({ cls: "ai-tasks-bulk-session-grid" });
+    this.renderSessionInfo();
+    refreshBtn.addEventListener("click", () => {
+      this.renderSessionInfo();
+      this.setStatus(this.plugin.t("bulk_modal.session.status_refreshed"));
+    });
+    this.sessionAutoBtn.addEventListener("click", () => this.toggleAutoRefresh());
+
+    const formGrid = contentEl.createDiv({ cls: "ai-tasks-bulk-form-grid" });
+    const draftBox = formGrid.createDiv({ cls: "ai-tasks-bulk-panel ai-tasks-bulk-panel-main" });
+    draftBox.createDiv({ cls: "ai-tasks-bulk-label", text: this.plugin.t("bulk_modal.label.text") });
+    const draftInput = draftBox.createEl("textarea", { cls: "ai-tasks-bulk-textarea ai-tasks-bulk-textarea-main" });
     draftInput.placeholder = this.plugin.t("bulk_modal.placeholder.text");
     draftInput.value = this.text;
     draftInput.addEventListener("input", () => {
       this.text = draftInput.value;
     });
 
-    const instrBox = contentEl.createDiv({ cls: "ai-tasks-instr-box" });
-    instrBox.createDiv({ cls: "ai-tasks-draft-label", text: this.plugin.t("bulk_modal.label.instruction") });
-    const instrInput = instrBox.createEl("textarea", { cls: "ai-tasks-draft-textarea" });
+    const instrBox = formGrid.createDiv({ cls: "ai-tasks-bulk-panel" });
+    instrBox.createDiv({ cls: "ai-tasks-bulk-label", text: this.plugin.t("bulk_modal.label.instruction") });
+    const instrInput = instrBox.createEl("textarea", { cls: "ai-tasks-bulk-textarea" });
     instrInput.placeholder = this.plugin.t("bulk_modal.placeholder.instruction");
     instrInput.value = this.instruction;
     instrInput.addEventListener("input", () => {
       this.instruction = instrInput.value;
     });
 
-    const btnRow = contentEl.createDiv({ cls: "ai-tasks-draft-buttons" });
+    const btnRow = contentEl.createDiv({ cls: "ai-tasks-bulk-actions" });
     const genBtn = btnRow.createEl("button", { text: this.plugin.t("btn.generate"), cls: "mod-cta" });
     const applyBtn = btnRow.createEl("button", { text: this.plugin.t("bulk_modal.btn.import_to_board") });
 
-    this.statusEl = contentEl.createDiv({ cls: "ai-tasks-draft-status", text: "" });
+    this.statusEl = contentEl.createDiv({ cls: "ai-tasks-bulk-status", text: "" });
     this.listEl = contentEl.createDiv({ cls: "ai-tasks-bulk-list" });
 
     genBtn.addEventListener("click", () => void this.generate());
     applyBtn.addEventListener("click", () => void this.apply());
+  }
+
+  onClose(): void {
+    this.stopAutoRefresh();
+    this.contentEl.empty();
+  }
+
+  private getAutoRefreshBtnText(): string {
+    return this.plugin.t(this.autoRefreshOn ? "bulk_modal.session.btn_auto_on" : "bulk_modal.session.btn_auto_off");
+  }
+
+  private startAutoRefresh(): void {
+    this.stopAutoRefresh();
+    this.autoRefreshTimer = window.setInterval(() => {
+      this.renderSessionInfo();
+    }, 30_000);
+  }
+
+  private stopAutoRefresh(): void {
+    if (this.autoRefreshTimer == null) return;
+    window.clearInterval(this.autoRefreshTimer);
+    this.autoRefreshTimer = null;
+  }
+
+  private toggleAutoRefresh(): void {
+    this.autoRefreshOn = !this.autoRefreshOn;
+    if (this.sessionAutoBtn) this.sessionAutoBtn.textContent = this.getAutoRefreshBtnText();
+    if (this.autoRefreshOn) {
+      this.renderSessionInfo();
+      this.startAutoRefresh();
+      this.setStatus(this.plugin.t("bulk_modal.session.status_auto_on"));
+      return;
+    }
+    this.stopAutoRefresh();
+    this.setStatus(this.plugin.t("bulk_modal.session.status_auto_off"));
+  }
+
+  private renderSessionMeta(now: Date): void {
+    if (!this.sessionMetaEl) return;
+    const ts = now.toLocaleString();
+    this.sessionMetaEl.textContent = this.plugin.t("bulk_modal.session.last_updated", { ts });
+  }
+
+  private renderSessionInfo(): void {
+    if (!this.sessionInfoEl) return;
+    this.sessionInfoEl.empty();
+    this.renderSessionMeta(new Date());
+
+    const info = collectLocalSessionInfo();
+    const addItem = (label: string, value: string, mono = false): void => {
+      const item = this.sessionInfoEl?.createDiv({ cls: "ai-tasks-bulk-session-item" });
+      if (!item) return;
+      item.createDiv({ cls: "ai-tasks-bulk-session-label", text: label });
+      item.createDiv({ cls: `ai-tasks-bulk-session-value${mono ? " is-mono" : ""}`, text: value });
+    };
+
+    addItem(this.plugin.t("bulk_modal.session.root"), info.rootPath, true);
+    if (!info.available) {
+      this.sessionInfoEl.createDiv({
+        cls: "ai-tasks-bulk-session-note",
+        text: this.plugin.t("bulk_modal.session.unavailable"),
+      });
+      return;
+    }
+
+    addItem(this.plugin.t("bulk_modal.session.total"), String(info.totalCount));
+    addItem(this.plugin.t("bulk_modal.session.today"), String(info.todayCount));
+    addItem(
+      this.plugin.t("bulk_modal.session.latest_id"),
+      info.latestSessionId ?? this.plugin.t("bulk_modal.session.none"),
+      true
+    );
+    addItem(
+      this.plugin.t("bulk_modal.session.latest_time"),
+      info.latestTime ?? this.plugin.t("bulk_modal.session.none")
+    );
   }
 
   private setStatus(text: string): void {
@@ -212,8 +403,13 @@ export class AiTasksBulkImportModal extends Modal {
       const status = normalizeStatus(t.status ?? "Unassigned");
       const tags = normalizeTags(t.tags);
 
-      row.createDiv({ cls: "ai-tasks-bulk-title", text: title });
-      row.createDiv({ cls: "ai-tasks-bulk-meta", text: `${status}${tags.length ? " | " + tags.join(", ") : ""}` });
+      const head = row.createDiv({ cls: "ai-tasks-bulk-row-head" });
+      head.createDiv({ cls: "ai-tasks-bulk-title", text: title });
+      head.createDiv({ cls: "ai-tasks-bulk-chip", text: status });
+      row.createDiv({
+        cls: "ai-tasks-bulk-meta",
+        text: tags.length ? tags.join(", ") : this.plugin.t("bulk_modal.meta.no_tags"),
+      });
     }
   }
 

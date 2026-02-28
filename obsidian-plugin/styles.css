@@ -539,30 +539,233 @@
 }
 
 /* Bulk import modal */
-.ai-tasks-bulk-import-modal .ai-tasks-bulk-list {
+.ai-tasks-bulk-import-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-heading {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-subtitle {
+  margin-top: -2px;
+  font-size: 13px;
+  opacity: 0.82;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-card {
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary)),
+    var(--background-primary)
+  );
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.88;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-refresh {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  background: var(--background-primary);
+  cursor: pointer;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-refresh:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-meta {
+  margin-top: -2px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  opacity: 0.74;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-item {
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--background-primary);
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-label {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-value {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  word-break: break-all;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-value.is-mono {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-session-note {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--background-modifier-border);
+  opacity: 0.88;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.6fr 1fr;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-panel {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
   padding: 10px;
-  margin-top: 10px;
+  background: var(--background-secondary);
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-label {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  opacity: 0.88;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-textarea {
+  width: 100%;
+  min-height: 132px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid var(--background-modifier-border);
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.45;
+  background: var(--background-primary);
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-textarea:focus {
+  border-color: color-mix(in srgb, var(--interactive-accent) 48%, var(--background-modifier-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-textarea-main {
+  min-height: 182px;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-status {
+  min-height: 22px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  line-height: 1.1;
+  opacity: 0.9;
+  background: var(--background-secondary);
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-list {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 10px;
   max-height: 320px;
   overflow: auto;
   background: var(--background-secondary);
 }
 
 .ai-tasks-bulk-import-modal .ai-tasks-bulk-row {
-  padding: 8px;
-  border-radius: 8px;
-  background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--background-primary);
   margin-bottom: 8px;
 }
 
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-row:last-child {
+  margin-bottom: 0;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .ai-tasks-bulk-import-modal .ai-tasks-bulk-title {
+  font-size: 14px;
   font-weight: 700;
-  margin-bottom: 4px;
+  line-height: 1.25;
+}
+
+.ai-tasks-bulk-import-modal .ai-tasks-bulk-chip {
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  white-space: nowrap;
 }
 
 .ai-tasks-bulk-import-modal .ai-tasks-bulk-meta {
+  margin-top: 6px;
   font-size: 12px;
-  opacity: 0.85;
+  opacity: 0.86;
+}
+
+@media (max-width: 900px) {
+  .ai-tasks-bulk-import-modal .ai-tasks-bulk-session-grid,
+  .ai-tasks-bulk-import-modal .ai-tasks-bulk-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-tasks-bulk-import-modal .ai-tasks-bulk-heading {
+    font-size: 24px;
+  }
 }

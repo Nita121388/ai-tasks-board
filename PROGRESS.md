@@ -39,3 +39,9 @@
 - Obsidian plugin: added Agent workspace directory setting to allow prompt overrides inside a vault.
 - Prompting: refined `board.split` rules to default to 1-line = 1-task while allowing multi-task single lines when obvious.
 - Debugging/logging: added request-id + latency logging for plugin->runtime calls, runtime start/stop events in vault JSONL logs, and runtime-side structured logs with request-id correlation; runtime status now reports the real package version.
+
+## 2026-02-28
+
+- Obsidian plugin: redesigned the bulk-import modal UI (clearer hierarchy, card-style layout, improved task preview rows).
+- Obsidian plugin: bulk-import modal now surfaces local Codex session capture info (`~/.codex/sessions`) including directory, total/today rollout counts, latest session ID/time.
+- Obsidian plugin: added session panel refresh controls in bulk-import modal (manual refresh + optional 30s auto-refresh, with timer cleanup on modal close).
