@@ -24,6 +24,17 @@ type RuntimeStatusResponse = {
   version?: string;
 };
 
+export type SessionsSyncOnceResult = {
+  ok: boolean;
+  code: number | null;
+  signal: string | null;
+  latency_ms: number;
+  stdout: string;
+  stderr: string;
+  parsed: Record<string, unknown> | null;
+  error?: string;
+};
+
 function joinUrl(base: string, path: string): string {
   return base.replace(/\/+$/g, "") + path;
 }
@@ -97,6 +108,7 @@ export default class AiTasksBoardPlugin extends Plugin {
   private runtimePid: number | null = null;
   private sessionsProcess: ChildProcess | null = null;
   private sessionsPid: number | null = null;
+  private sessionsSyncPromise: Promise<SessionsSyncOnceResult> | null = null;
   private boardOverlay: BoardNoteOverlayManager | null = null;
   private autoStartPromise: Promise<void> | null = null;
   private sessionsMigrationTimer: number | null = null;
@@ -159,6 +171,10 @@ export default class AiTasksBoardPlugin extends Plugin {
 
   getSessionsWatcherPid(): number | null {
     return this.sessionsPid;
+  }
+
+  isSessionsSyncRunning(): boolean {
+    return this.sessionsSyncPromise !== null;
   }
 
   private getDefaultAgentDir(): string | null {
@@ -513,6 +529,136 @@ export default class AiTasksBoardPlugin extends Plugin {
       out.push(p);
     }
     return out;
+  }
+
+  private parseLastJsonLine(text: string): Record<string, unknown> | null {
+    const lines = (text || "")
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i] ?? "";
+      if (!line.startsWith("{") || !line.endsWith("}")) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj && typeof obj === "object") return obj as Record<string, unknown>;
+      } catch {
+        // ignore non-json line
+      }
+    }
+    return null;
+  }
+
+  async runSessionsSyncOnce(): Promise<SessionsSyncOnceResult> {
+    if (this.sessionsSyncPromise) return this.sessionsSyncPromise;
+
+    this.sessionsSyncPromise = (async () => {
+      const started = Date.now();
+      const base = this.resolveRuntimeSpawnBase();
+      const vaultPath = this.getVaultBasePath();
+      if (!base || !vaultPath) {
+        const msg = !base ? this.t("notice.runtime.command_empty") : "Vault path unavailable.";
+        const quick: SessionsSyncOnceResult = {
+          ok: false,
+          code: null,
+          signal: null,
+          latency_ms: Math.max(0, Date.now() - started),
+          stdout: "",
+          stderr: "",
+          parsed: null,
+          error: msg,
+        };
+        void appendAiTasksLog(this, { type: "sessions.sync.once.error", error: msg });
+        return quick;
+      }
+
+      const args = ["sessions", "sync", vaultPath, "--board-path", this.settings.boardPath];
+      void appendAiTasksLog(this, {
+        type: "sessions.sync.once.request",
+        cmd: base.cmd,
+        args,
+        cwd: base.cwd ?? null,
+        vault: vaultPath,
+        board_path: this.settings.boardPath,
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let code: number | null = null;
+      let signal: string | null = null;
+      let errorMessage: string | undefined;
+
+      const logDir = this.getPluginDir();
+      const stdoutPath = logDir ? join(logDir, "sessions.stdout.log") : null;
+      const stderrPath = logDir ? join(logDir, "sessions.stderr.log") : null;
+
+      try {
+        const child = spawn(base.cmd, args, {
+          cwd: base.cwd,
+          windowsHide: true,
+          shell: false,
+          env: base.env,
+        });
+
+        await new Promise<void>((resolve) => {
+          child.stdout?.on("data", (buf) => {
+            const txt = buf.toString();
+            stdout += txt;
+            if (stdoutPath) appendFileSync(stdoutPath, txt);
+          });
+          child.stderr?.on("data", (buf) => {
+            const txt = buf.toString();
+            stderr += txt;
+            if (stderrPath) appendFileSync(stderrPath, txt);
+          });
+          child.on("error", (err) => {
+            errorMessage = err instanceof Error ? err.message : String(err);
+          });
+          child.on("close", (c, s) => {
+            code = c ?? null;
+            signal = s ?? null;
+            resolve();
+          });
+        });
+      } catch (e) {
+        errorMessage = e instanceof Error ? e.message : String(e);
+      }
+
+      const parsed = this.parseLastJsonLine(stdout);
+      const ok = code === 0 && !errorMessage;
+      const result: SessionsSyncOnceResult = {
+        ok,
+        code,
+        signal,
+        latency_ms: Math.max(0, Date.now() - started),
+        stdout,
+        stderr,
+        parsed,
+        error: errorMessage,
+      };
+
+      void appendAiTasksLog(this, {
+        type: ok ? "sessions.sync.once.done" : "sessions.sync.once.error",
+        ok,
+        code,
+        signal,
+        latency_ms: result.latency_ms,
+        written: typeof parsed?.written === "number" ? parsed.written : null,
+        linked_updates: typeof parsed?.linked_updates === "number" ? parsed.linked_updates : null,
+        created_unassigned: typeof parsed?.created_unassigned === "number" ? parsed.created_unassigned : null,
+        skipped_old: typeof parsed?.skipped_old === "number" ? parsed.skipped_old : null,
+        errors: typeof parsed?.errors === "number" ? parsed.errors : null,
+        error: errorMessage ?? null,
+      });
+
+      this.scheduleLegacySessionsMigration(200);
+      return result;
+    })().finally(() => {
+      this.sessionsSyncPromise = null;
+    });
+
+    return this.sessionsSyncPromise;
   }
 
   private async startSessionsWatcherIfNeeded(base: { cmd: string; cwd: string | undefined; env: Record<string, string> }): Promise<void> {

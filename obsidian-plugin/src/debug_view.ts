@@ -1,7 +1,8 @@
-import { ItemView, TFolder, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, TFolder, WorkspaceLeaf } from "obsidian";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type AiTasksBoardPlugin from "./main";
+import type { SessionsSyncOnceResult } from "./main";
 import { RuntimeHttpError, randomRequestId, runtimeRequestJson } from "./runtime_http";
 
 export const AI_TASKS_DEBUG_VIEW_TYPE = "ai-tasks-debug-view";
@@ -86,6 +87,7 @@ export class AiTasksDebugView extends ItemView {
   private refreshTimer: number | null = null;
   private autoRefresh = true;
   private rendering = false;
+  private syncingOnce = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: AiTasksBoardPlugin) {
     super(leaf);
@@ -368,6 +370,18 @@ export class AiTasksDebugView extends ItemView {
     }
   }
 
+  private extractNumber(obj: Record<string, unknown> | null, key: string): number | null {
+    if (!obj) return null;
+    const v = obj[key];
+    return typeof v === "number" ? v : null;
+  }
+
+  private getSyncResultHint(result: SessionsSyncOnceResult): string {
+    if (result.error) return result.error;
+    if (result.code !== null) return `code=${result.code}`;
+    return this.plugin.t("debug.stage.none");
+  }
+
   private async renderSafe(): Promise<void> {
     if (this.rendering) return;
     this.rendering = true;
@@ -389,6 +403,29 @@ export class AiTasksDebugView extends ItemView {
     const refreshBtn = actions.createEl("button", { text: this.plugin.t("debug.btn.refresh"), cls: "ai-tasks-debug-btn" });
     refreshBtn.addEventListener("click", () => {
       void this.renderSafe();
+    });
+
+    const syncBtn = actions.createEl("button", {
+      text: this.syncingOnce ? this.plugin.t("debug.btn.syncing") : this.plugin.t("debug.btn.sync_once"),
+      cls: "ai-tasks-debug-btn mod-cta",
+    });
+    syncBtn.addEventListener("click", () => {
+      void (async () => {
+        if (this.syncingOnce || this.plugin.isSessionsSyncRunning()) return;
+        this.syncingOnce = true;
+        await this.renderSafe();
+
+        const result = await this.plugin.runSessionsSyncOnce();
+        const written = this.extractNumber(result.parsed, "written");
+        if (result.ok) {
+          new Notice(this.plugin.t("debug.notice.sync_ok", { count: written ?? 0 }));
+        } else {
+          new Notice(this.plugin.t("debug.notice.sync_failed", { error: this.getSyncResultHint(result) }));
+        }
+
+        this.syncingOnce = false;
+        await this.renderSafe();
+      })();
     });
 
     const autoBtn = actions.createEl("button", {

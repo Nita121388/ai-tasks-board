@@ -197,8 +197,12 @@ const STRINGS = {
   // Debug sidebar
   "debug.view.title": { en: "AI Tasks Debug", zh: "AI Tasks 调试" },
   "debug.btn.refresh": { en: "Refresh", zh: "刷新" },
+  "debug.btn.sync_once": { en: "Sync now", zh: "立即同步" },
+  "debug.btn.syncing": { en: "Syncing...", zh: "同步中..." },
   "debug.btn.auto_on": { en: "Auto: ON", zh: "自动刷新：开" },
   "debug.btn.auto_off": { en: "Auto: OFF", zh: "自动刷新：关" },
+  "debug.notice.sync_ok": { en: "Sync completed, wrote {{count}} session file(s).", zh: "同步完成，写入 {{count}} 个会话文件。" },
+  "debug.notice.sync_failed": { en: "Sync failed: {{error}}", zh: "同步失败：{{error}}" },
   "debug.section.stage": { en: "Capture stages", zh: "抓取阶段" },
   "debug.section.events": { en: "Recent plugin events", zh: "最近插件事件" },
   "debug.section.watch_logs": { en: "Watcher logs", zh: "监听日志" },
