@@ -123,7 +123,10 @@ const STRINGS = {
   // Settings: model
   "settings.model.heading": { en: "Model Settings", zh: "模型设置" },
   "settings.model_provider.name": { en: "Model provider", zh: "模型提供者" },
-  "settings.model_provider.desc": { en: "codex-cli (local) or OpenAI-compatible API.", zh: "codex-cli（本地）或 OpenAI-compatible API。" },
+  "settings.model_provider.desc": {
+    en: "codex-cli (local) or OpenAI-compatible Chat Completions API (/v1/chat/completions).",
+    zh: "codex-cli（本地）或 OpenAI-compatible 的 Chat Completions API（/v1/chat/completions）。",
+  },
   "settings.model_provider.opt.codex": { en: "codex-cli (local)", zh: "codex-cli（本地）" },
   "settings.model_provider.opt.openai": { en: "OpenAI-compatible API", zh: "OpenAI-compatible API" },
   "settings.codex_cli_path.name": { en: "Codex CLI path", zh: "Codex CLI 路径" },
@@ -132,11 +135,20 @@ const STRINGS = {
     zh: "本地 codex 可执行文件路径（仅用于 codex-cli）。",
   },
   "settings.model_name.name": { en: "Model name", zh: "模型名称" },
-  "settings.model_name.desc": { en: "Model identifier (for OpenAI-compatible providers).", zh: "模型标识（用于 OpenAI-compatible provider）。" },
+  "settings.model_name.desc": {
+    en: "Model identifier (OpenAI-compatible). Examples: gpt-4o-mini, qwen2.5:7b.",
+    zh: "模型标识（OpenAI-compatible）。例如：gpt-4o-mini、qwen2.5:7b。",
+  },
   "settings.model_base_url.name": { en: "API base URL", zh: "API base URL" },
-  "settings.model_base_url.desc": { en: "Base URL for OpenAI-compatible API (e.g. https://api.openai.com).", zh: "OpenAI-compatible 的 base URL（例如 https://api.openai.com）。" },
+  "settings.model_base_url.desc": {
+    en: "Base URL for OpenAI-compatible API (with or without /v1). Examples: https://api.openai.com, http://127.0.0.1:11434/v1.",
+    zh: "OpenAI-compatible 的 base URL（可带/不带 /v1）。例如：https://api.openai.com、http://127.0.0.1:11434/v1。",
+  },
   "settings.model_api_key.name": { en: "API key", zh: "API key" },
-  "settings.model_api_key.desc": { en: "API key for OpenAI-compatible providers (stored locally).", zh: "OpenAI-compatible 的 API key（仅保存在本地）。" },
+  "settings.model_api_key.desc": {
+    en: "API key (OpenAI-compatible). Required for OpenAI/OpenRouter; usually empty for local servers. Stored locally.",
+    zh: "API key（OpenAI-compatible）。OpenAI/OpenRouter 必填；本地服务通常可留空。仅保存在本地。",
+  },
   "settings.model_temperature.name": { en: "Temperature", zh: "温度" },
   "settings.model_temperature.desc": { en: "Sampling temperature (e.g. 0.2).", zh: "采样温度（例如 0.2）。" },
   "settings.model_top_p.name": { en: "Top P", zh: "Top P" },

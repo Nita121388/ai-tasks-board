@@ -257,6 +257,20 @@ export default class AiTasksBoardPlugin extends Plugin {
     if (codexBin) {
       env.AI_TASKS_CODEX_BIN = codexBin;
     }
+
+    // Sessions sync/watch reads AI model config from env (avoid leaking secrets via argv/logs).
+    const provider = this.settings.modelProvider?.trim();
+    if (provider) env.AI_TASKS_MODEL_PROVIDER = provider;
+    const modelName = this.settings.modelName?.trim();
+    if (modelName) env.AI_TASKS_MODEL_NAME = modelName;
+    const baseUrl = this.settings.modelBaseUrl?.trim();
+    if (baseUrl) env.AI_TASKS_MODEL_BASE_URL = baseUrl;
+    const apiKey = this.settings.modelApiKey?.trim();
+    if (apiKey) env.AI_TASKS_MODEL_API_KEY = apiKey;
+    if (Number.isFinite(this.settings.modelTemperature)) env.AI_TASKS_MODEL_TEMPERATURE = String(this.settings.modelTemperature);
+    if (Number.isFinite(this.settings.modelMaxTokens)) env.AI_TASKS_MODEL_MAX_TOKENS = String(this.settings.modelMaxTokens);
+    if (Number.isFinite(this.settings.modelTopP)) env.AI_TASKS_MODEL_TOP_P = String(this.settings.modelTopP);
+
     return { cmd, cwd, env, bundledCmd, urlInfo };
   }
 
@@ -606,7 +620,9 @@ export default class AiTasksBoardPlugin extends Plugin {
         return quick;
       }
 
-      const args = ["sessions", "sync", vaultPath, "--board-path", this.settings.boardPath];
+      // AI-only semantic matching. If the model is unsure, the runtime will create an Unassigned
+      // session task instead of forcing a link.
+      const args = ["sessions", "sync", vaultPath, "--board-path", this.settings.boardPath, "--match-mode", "ai"];
       void appendAiTasksLog(this, {
         type: "sessions.sync.once.request",
         cmd: base.cmd,
@@ -703,7 +719,9 @@ export default class AiTasksBoardPlugin extends Plugin {
       return;
     }
 
-    const args = ["sessions", "watch", vaultPath, "--board-path", this.settings.boardPath];
+    // AI-only semantic matching. If the model is unsure, the runtime will create an Unassigned
+    // session task instead of forcing a link.
+    const args = ["sessions", "watch", vaultPath, "--board-path", this.settings.boardPath, "--match-mode", "ai"];
     void appendAiTasksLog(this, {
       type: "sessions.watch.start.request",
       cmd: base.cmd,
