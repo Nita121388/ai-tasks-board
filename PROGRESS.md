@@ -51,3 +51,4 @@
 
 - Sessions -> task linking: switched default match mode to `ai` (AI-only) per Nita; removed heuristic pre-filtering for AI and made the model consider the full task list (chunked tournament for large boards).
 - Sessions AI provider: added `openai-compatible` support for sessions summarize/match via env vars (`AI_TASKS_MODEL_PROVIDER` / `AI_TASKS_MODEL_*`), with Obsidian plugin injecting model config via env (so API keys don't end up in argv/logs).
+- Docs: clarified `AI_TASKS_MODEL_*` examples (OpenAI/OpenRouter/Ollama/LM Studio) and made plugin model setting descriptions more explicit.

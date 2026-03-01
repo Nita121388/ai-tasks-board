@@ -44,9 +44,15 @@ ai-tasks-runtime sessions watch /path/to/your/vault --board-path "Tasks/Boards/B
 # Optional: use an OpenAI-compatible provider for sessions summarize/match (instead of Codex CLI)
 # (The Obsidian plugin injects these env vars automatically when you fill in Model settings.)
 export AI_TASKS_MODEL_PROVIDER="openai-compatible"
-export AI_TASKS_MODEL_BASE_URL="https://api.openai.com"
-export AI_TASKS_MODEL_API_KEY="..."
-export AI_TASKS_MODEL_NAME="gpt-4o-mini"
+# - Base URL can be with or without `/v1` (the runtime will normalize to `/v1/chat/completions`).
+# - API key can be provided via `AI_TASKS_MODEL_API_KEY` or `OPENAI_API_KEY`.
+# - Local OpenAI-compatible servers (Ollama/LM Studio/vLLM) usually don't require an API key.
+export AI_TASKS_MODEL_BASE_URL="https://api.openai.com"          # or http://127.0.0.1:11434/v1
+export AI_TASKS_MODEL_API_KEY="..."                              # or leave empty for local
+export AI_TASKS_MODEL_NAME="gpt-4o-mini"                         # e.g. gpt-4o-mini / qwen2.5:7b / llama3.1
+export AI_TASKS_MODEL_TEMPERATURE="0.2"                          # optional
+export AI_TASKS_MODEL_MAX_TOKENS="1024"                          # optional
+export AI_TASKS_MODEL_TOP_P="1"                                  # optional
 
 # Disable board linking:
 ai-tasks-runtime sessions watch /path/to/your/vault --no-link-board
@@ -88,6 +94,19 @@ npm run build
 - **Codex CLI path**: set if `codex` is not on PATH (Windows).
 - **Agent workspace directory**: optional; set to a vault path to edit prompt overrides in Obsidian.
 - **Runtime URL / command / args / cwd**: configure how the local runtime is started.
+- **Model settings**:
+  - If you keep **Model provider = codex-cli (local)**: no API key needed (uses local `codex`).
+  - If you set **Model provider = OpenAI-compatible API**:
+    - Model name: e.g. `gpt-4o-mini` (OpenAI) / `qwen2.5:7b` (Ollama)
+    - Base URL examples:
+      - OpenAI: `https://api.openai.com`
+      - OpenRouter: `https://openrouter.ai/api/v1`
+      - Ollama: `http://127.0.0.1:11434/v1`
+      - LM Studio: `http://127.0.0.1:1234/v1`
+    - API key: required for OpenAI/OpenRouter; usually empty for local servers
+  - These settings are used by:
+    - In-plugin AI actions (import/split/update)
+    - Sessions auto-linking (runtime process env injection for `sessions sync/watch`)
 
 #### Using the board (in-note UI)
 
