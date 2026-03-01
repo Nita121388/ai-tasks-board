@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import httpx
 
 from ai_tasks_runtime.agent_workspace import build_agent_context_prelude, ensure_agent_workspace, load_agent_files
 from ai_tasks_runtime.agno_agent import run_agent_text
@@ -86,6 +89,128 @@ class SessionMessage:
     role: str
     ts: Optional[str]
     text: str
+
+
+@dataclass
+class AiModelConfig:
+    """Model configuration for AI calls used in sessions summarize/match.
+
+    This mirrors the Obsidian plugin settings:
+      - provider: "codex-cli" | "openai-compatible" | "auto"
+      - model/base_url/api_key: for openai-compatible chat completions
+    """
+
+    provider: str = "codex-cli"
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+
+
+def _env_str(name: str) -> Optional[str]:
+    v = os.getenv(name)
+    if v is None:
+        return None
+    s = v.strip()
+    return s or None
+
+
+def _env_int(name: str) -> Optional[int]:
+    v = _env_str(name)
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+def _env_float(name: str) -> Optional[float]:
+    v = _env_str(name)
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def _normalize_ai_provider(provider: Optional[str]) -> str:
+    p = (provider or "").strip().lower()
+    if p in ("", "codex", "codex-cli", "codex_cli"):
+        return "codex-cli"
+    if p in ("openai", "openai-compatible", "openai_compatible"):
+        return "openai-compatible"
+    if p in ("auto",):
+        return "auto"
+    return "codex-cli"
+
+
+def _load_ai_model_config_from_env() -> AiModelConfig:
+    # Keep env names stable: Obsidian plugin injects these for sessions sync/watch.
+    provider = _env_str("AI_TASKS_MODEL_PROVIDER") or "codex-cli"
+    api_key = _env_str("AI_TASKS_MODEL_API_KEY") or _env_str("OPENAI_API_KEY")
+    return AiModelConfig(
+        provider=_normalize_ai_provider(provider),
+        model=_env_str("AI_TASKS_MODEL_NAME"),
+        base_url=_env_str("AI_TASKS_MODEL_BASE_URL"),
+        api_key=api_key,
+        temperature=_env_float("AI_TASKS_MODEL_TEMPERATURE"),
+        max_tokens=_env_int("AI_TASKS_MODEL_MAX_TOKENS"),
+        top_p=_env_float("AI_TASKS_MODEL_TOP_P"),
+    )
+
+
+def _openai_url(base_url: Optional[str]) -> str:
+    root = (base_url or "https://api.openai.com").rstrip("/")
+    if root.endswith("/v1"):
+        return f"{root}/chat/completions"
+    return f"{root}/v1/chat/completions"
+
+
+def _ai_text(prompt: str, *, ai_model: AiModelConfig, timeout_s: int = 120) -> str:
+    provider = _normalize_ai_provider(ai_model.provider)
+    if provider == "auto":
+        provider = "openai-compatible" if (ai_model.api_key or "").strip() else "codex-cli"
+
+    if provider == "codex-cli":
+        result = run_agent_text(prompt, timeout_s=timeout_s, cwd=settings.codex_cwd)
+        return result.text or ""
+
+    if provider == "openai-compatible":
+        url = _openai_url(ai_model.base_url)
+        headers = {"Content-Type": "application/json"}
+        if ai_model.api_key and ai_model.api_key.strip():
+            headers["Authorization"] = f"Bearer {ai_model.api_key.strip()}"
+
+        payload: Dict[str, Any] = {
+            "model": ai_model.model or "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if ai_model.temperature is not None:
+            payload["temperature"] = ai_model.temperature
+        if ai_model.top_p is not None:
+            payload["top_p"] = ai_model.top_p
+        if ai_model.max_tokens is not None and ai_model.max_tokens > 0:
+            payload["max_tokens"] = ai_model.max_tokens
+
+        resp = httpx.post(url, json=payload, headers=headers, timeout=timeout_s)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"openai-compatible call failed: {resp.status_code} {resp.text}")
+
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("openai-compatible empty response: missing choices")
+        msg = choices[0].get("message") or {}
+        text = msg.get("content") or ""
+        if not isinstance(text, str) or not text.strip():
+            raise RuntimeError("openai-compatible empty response: missing message content")
+        return text
+
+    raise ValueError(f"Unsupported ai provider: {provider}")
 
 
 def _flatten_message_content(content: Any) -> str:
@@ -208,7 +333,7 @@ def _select_snippets(messages: List[SessionMessage], max_snippets: int = 12) -> 
     return out
 
 
-def _summarize_with_codex(messages: List[SessionMessage]) -> Optional[str]:
+def _summarize_with_ai(messages: List[SessionMessage], *, ai_model: AiModelConfig) -> Optional[str]:
     filtered = [m for m in messages if not _is_harness_context_message(m.text)]
     if not filtered:
         return None
@@ -230,11 +355,18 @@ def _summarize_with_codex(messages: List[SessionMessage]) -> Optional[str]:
     )
 
     try:
-        result = run_agent_text(prompt, timeout_s=120, cwd=settings.codex_cwd)
+        text = _ai_text(prompt, ai_model=ai_model, timeout_s=120)
     except Exception:
-        return None
+        # Allow openai-compatible configs to fall back to local Codex when misconfigured/offline.
+        if _normalize_ai_provider(ai_model.provider) in ("openai-compatible", "auto"):
+            try:
+                text = _ai_text(prompt, ai_model=AiModelConfig(provider="codex-cli"), timeout_s=120)
+            except Exception:
+                return None
+        else:
+            return None
 
-    summary = (result.text or "").strip()
+    summary = (text or "").strip()
     return summary or None
 
 
@@ -389,78 +521,90 @@ def _best_task_match(board_content: str, session_payload: Dict[str, Any]) -> Tup
     return best_uuid, best_score
 
 
-def _top_candidate_tasks(
-    board_content: str, session_payload: Dict[str, Any], top_k: int = 20
-) -> List[Tuple[str, str, str, List[str], float]]:
-    """Return candidate tasks as (uuid, title, status, tags, heuristic_score)."""
+def _list_task_candidates(board_content: str) -> List[Tuple[str, str, str, List[str]]]:
+    """Return all tasks as candidates (uuid, title, status, tags).
+
+    Keep a stable status-first ordering to reduce noise in the prompt.
+    """
     parsed = parse_board(board_content)
-    tasks = [t for sec in parsed.sections.values() for t in sec.tasks]
-    if not tasks:
-        return []
+    ordered: List[Tuple[str, str, str, List[str]]] = []
+    seen: set[str] = set()
 
-    s_tokens = _tokenize(_session_text(session_payload))
-    if not s_tokens:
-        return []
+    for status in ("Doing", "Todo", "Review", "Unassigned", "Done"):
+        sec = parsed.sections.get(status)
+        if not sec:
+            continue
+        for t in sec.tasks:
+            ordered.append((t.uuid, t.title, t.status, t.tags))
+            seen.add(t.uuid)
 
-    ranked: List[Tuple[str, str, str, List[str], float]] = []
-    for t in tasks:
-        t_text = " ".join([t.title, *t.tags])
-        score = _jaccard(s_tokens, _tokenize(t_text))
-        ranked.append((t.uuid, t.title, t.status, t.tags, score))
+    # Defensive: include any remaining tasks in case future schemas add sections.
+    for sec in parsed.sections.values():
+        for t in sec.tasks:
+            if t.uuid in seen:
+                continue
+            ordered.append((t.uuid, t.title, t.status, t.tags))
+            seen.add(t.uuid)
 
-    ranked.sort(key=lambda x: x[4], reverse=True)
-    k = max(1, min(int(top_k or 20), len(ranked)))
-    return ranked[:k]
+    return ordered
 
 
 def _ai_task_match(
     *,
-    candidates: List[Tuple[str, str, str, List[str], float]],
+    candidates: List[Tuple[str, str, str, List[str]]],
     session_payload: Dict[str, Any],
-    top_k: int = 20,
+    ai_model: AiModelConfig,
+    ctx: Optional[str] = None,
     timeout_s: int = 120,
 ) -> Tuple[Optional[str], Optional[float], Optional[str]]:
-    """Ask Codex to pick a task UUID among candidates (or null)."""
+    """Ask an AI model to pick a task UUID among candidates (or null)."""
     if not candidates:
         return None, None, None
 
-    k = max(1, min(int(top_k or 20), len(candidates)))
-    short = candidates[:k]
     cand_json = [
         {
             "uuid": u,
             "title": title,
             "status": status,
             "tags": tags,
-            "heuristic_score": round(score, 4),
         }
-        for (u, title, status, tags, score) in short
+        for (u, title, status, tags) in candidates
     ]
 
-    ctx = ""
-    try:
-        ensure_agent_workspace(settings.agent_dir, force=False)
-        files = load_agent_files(settings.agent_dir, include=["SOUL.md", "AGENTS.md"])
-        ctx = build_agent_context_prelude(files)
-    except Exception:
-        ctx = ""
+    final_ctx = ctx
+    if final_ctx is None:
+        try:
+            ensure_agent_workspace(settings.agent_dir, force=False)
+            files = load_agent_files(settings.agent_dir, include=["SOUL.md", "AGENTS.md"])
+            final_ctx = build_agent_context_prelude(files)
+        except Exception:
+            final_ctx = ""
+    else:
+        final_ctx = final_ctx or ""
 
     prompt = render_prompt(
         settings.agent_dir,
         "sessions.codex.match_task.v1",
         {
-            "ctx": ctx,
+            "ctx": final_ctx,
             "session_text": _session_text(session_payload),
             "candidates_json": json.dumps(cand_json, ensure_ascii=False),
         },
     )
 
     try:
-        result = run_agent_text(prompt, timeout_s=timeout_s, cwd=settings.codex_cwd)
+        text = _ai_text(prompt, ai_model=ai_model, timeout_s=timeout_s)
     except Exception:
-        return None, None, None
+        # Allow openai-compatible configs to fall back to local Codex when misconfigured/offline.
+        if _normalize_ai_provider(ai_model.provider) in ("openai-compatible", "auto"):
+            try:
+                text = _ai_text(prompt, ai_model=AiModelConfig(provider="codex-cli"), timeout_s=timeout_s)
+            except Exception:
+                return None, None, None
+        else:
+            return None, None, None
 
-    obj = _parse_json_obj(result.text or "")
+    obj = _parse_json_obj(text or "")
     if not obj:
         return None, None, None
 
@@ -478,11 +622,77 @@ def _ai_task_match(
     if isinstance(obj.get("reasoning"), str):
         reasoning = obj.get("reasoning").strip() or None
 
-    allowed = {u for (u, _, _, _, _) in short}
+    allowed = {u for (u, _, _, _) in candidates}
     if target_uuid is not None and target_uuid not in allowed:
         return None, conf_val, reasoning
 
     return target_uuid, conf_val, reasoning
+
+
+def _chunked(items: List[Tuple[str, str, str, List[str]]], size: int) -> List[List[Tuple[str, str, str, List[str]]]]:
+    k = max(1, int(size or 1))
+    return [items[i : i + k] for i in range(0, len(items), k)]
+
+
+def _ai_match_task_uuid(
+    *,
+    board_content: str,
+    session_payload: Dict[str, Any],
+    ai_model: AiModelConfig,
+    ctx: Optional[str],
+    chunk_size: int,
+    timeout_s: int = 120,
+) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    """AI-only semantic matching (no heuristic pre-filter).
+
+    If the board is large, run a simple tournament:
+      - round 1: pick best candidate per chunk
+      - round 2: pick best among round-1 winners
+    """
+
+    candidates = _list_task_candidates(board_content)
+    if not candidates:
+        return None, None, None
+
+    k = max(5, int(chunk_size or 20))
+    if len(candidates) <= k:
+        return _ai_task_match(
+            candidates=candidates,
+            session_payload=session_payload,
+            ai_model=ai_model,
+            ctx=ctx,
+            timeout_s=timeout_s,
+        )
+
+    winners: Dict[str, float] = {}
+    for chunk in _chunked(candidates, k):
+        u, conf, _ = _ai_task_match(
+            candidates=chunk,
+            session_payload=session_payload,
+            ai_model=ai_model,
+            ctx=ctx,
+            timeout_s=timeout_s,
+        )
+        if not u:
+            continue
+        score = conf if conf is not None else 0.0
+        prev = winners.get(u)
+        if prev is None or score > prev:
+            winners[u] = score
+
+    if not winners:
+        return None, None, None
+
+    final_candidates = [c for c in candidates if c[0] in winners]
+    final_candidates.sort(key=lambda c: winners.get(c[0], 0.0), reverse=True)
+
+    return _ai_task_match(
+        candidates=final_candidates,
+        session_payload=session_payload,
+        ai_model=ai_model,
+        ctx=ctx,
+        timeout_s=timeout_s,
+    )
 
 
 def sync_codex_sessions(
@@ -494,7 +704,7 @@ def sync_codex_sessions(
     stable_after_s: int = 10,
     link_board: bool = True,
     board_rel_path: str = "Tasks/Boards/Board.md",
-    match_mode: str = "hybrid",
+    match_mode: str = "ai",
     match_threshold: float = 0.18,
     ai_confidence_threshold: float = 0.65,
     ai_top_k: int = 20,
@@ -520,6 +730,20 @@ def sync_codex_sessions(
             )
             link_board = False
             board_content = None
+
+    ai_model = _load_ai_model_config_from_env()
+    mode = (match_mode or "ai").strip().lower()
+    if mode not in ("heuristic", "ai", "hybrid"):
+        mode = "ai"
+
+    match_ctx: Optional[str] = None
+    if link_board and board_content is not None and mode in ("ai", "hybrid"):
+        try:
+            ensure_agent_workspace(settings.agent_dir, force=False)
+            files = load_agent_files(settings.agent_dir, include=["SOUL.md", "AGENTS.md"])
+            match_ctx = build_agent_context_prelude(files)
+        except Exception:
+            match_ctx = ""
 
     now = time.time()
     ignore_before = int(state.ignore_before_epoch)
@@ -567,7 +791,7 @@ def sync_codex_sessions(
                 snippets = _select_snippets(messages)
                 summary: Optional[str] = None
                 if summarize:
-                    summary = _summarize_with_codex(messages) or _fallback_summary(messages)
+                    summary = _summarize_with_ai(messages, ai_model=ai_model) or _fallback_summary(messages)
 
                 payload = {
                     "id": f"codex:{session_id}",
@@ -592,10 +816,6 @@ def sync_codex_sessions(
                 if session_ref in board_content:
                     skipped_already_linked += 1
                 else:
-                    mode = (match_mode or "hybrid").strip().lower()
-                    if mode not in ("heuristic", "ai", "hybrid"):
-                        mode = "hybrid"
-
                     match_uuid: Optional[str] = None
                     match_method: Optional[str] = None  # "ai" | "heuristic"
                     score = 0.0
@@ -603,11 +823,13 @@ def sync_codex_sessions(
 
                     # 1) AI match (if enabled)
                     if mode in ("ai", "hybrid"):
-                        candidates = _top_candidate_tasks(board_content, payload, top_k=ai_top_k)
-                        ai_uuid, ai_conf, _ = _ai_task_match(
-                            candidates=candidates,
+                        # `ai_top_k` now acts as the per-call chunk size.
+                        ai_uuid, ai_conf, _ = _ai_match_task_uuid(
+                            board_content=board_content,
                             session_payload=payload,
-                            top_k=ai_top_k,
+                            ai_model=ai_model,
+                            ctx=match_ctx,
+                            chunk_size=ai_top_k,
                         )
                         if ai_uuid:
                             match_uuid = ai_uuid
@@ -706,10 +928,15 @@ def sync_codex_sessions(
     state.sources["codex"]["sessions_root"] = str(root)
     state.sources["codex"]["output_dir"] = str(out_dir)
     state.sources["codex"]["board_rel_path"] = board_rel_path
-    state.sources["codex"]["match_mode"] = match_mode
+    state.sources["codex"]["match_mode"] = mode
     state.sources["codex"]["match_threshold"] = match_threshold
     state.sources["codex"]["ai_confidence_threshold"] = ai_confidence_threshold
+    # `ai_top_k` is kept for backward compatibility, but now controls the per-call chunk size for AI matching.
     state.sources["codex"]["ai_top_k"] = ai_top_k
+    state.sources["codex"]["ai_chunk_size"] = ai_top_k
+    state.sources["codex"]["ai_provider"] = _normalize_ai_provider(ai_model.provider)
+    if ai_model.model:
+        state.sources["codex"]["ai_model"] = ai_model.model
     state.sources["codex"]["last_result"] = {
         "written": written,
         "skipped_old": skipped_old,

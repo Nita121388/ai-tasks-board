@@ -95,7 +95,7 @@ _DEFAULT_TEMPLATES: Dict[str, str] = {
         '    "stable_after_s": 10,\n'
         '    "link_board": true,\n'
         '    "board_path": "Tasks/Boards/Board.md",\n'
-        '    "match_mode": "hybrid",\n'
+        '    "match_mode": "ai",\n'
         '    "match_threshold": 0.18,\n'
         '    "ai_confidence_threshold": 0.65,\n'
         '    "ai_top_k": 20\n'

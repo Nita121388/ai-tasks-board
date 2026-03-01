@@ -46,3 +46,8 @@
 - Obsidian plugin: bulk-import modal now surfaces local Codex session capture info (`~/.codex/sessions`) including directory, total/today rollout counts, latest session ID/time.
 - Obsidian plugin: added session panel refresh controls in bulk-import modal (manual refresh + optional 30s auto-refresh, with timer cleanup on modal close).
 - Sessions -> task linking: default match mode changed to `hybrid` (AI-first + heuristic fallback) so sessions can still link even when Codex CLI isn't available; improved CJK tokenization for heuristic matching and shortened auto-created session task titles; UI clamps long titles to 2 lines.
+
+## 2026-03-01
+
+- Sessions -> task linking: switched default match mode to `ai` (AI-only) per Nita; removed heuristic pre-filtering for AI and made the model consider the full task list (chunked tournament for large boards).
+- Sessions AI provider: added `openai-compatible` support for sessions summarize/match via env vars (`AI_TASKS_MODEL_PROVIDER` / `AI_TASKS_MODEL_*`), with Obsidian plugin injecting model config via env (so API keys don't end up in argv/logs).

@@ -30,9 +30,9 @@ ai-tasks-runtime serve
 # NOTE: This writes to the vault and snapshots history.
 ai-tasks-runtime board apply /path/to/your/vault "Draft text here" --instruction "Optional extra instruction" --board-path "Tasks/Boards/Board.md"
 
-# Sessions collector (Codex only for now; Mode B)
+# Sessions collector (Codex logs; Mode B)
 # - First run init once (ignores historical sessions before init)
-# - Then sync/watch new sessions into `Vault/Sessions/codex/*.json`
+# - Then sync/watch new sessions into `Vault/Tasks/Sessions/codex/*.json`
 ai-tasks-runtime sessions init /path/to/your/vault
 ai-tasks-runtime sessions watch /path/to/your/vault
 
@@ -40,6 +40,13 @@ ai-tasks-runtime sessions watch /path/to/your/vault
 # - match_mode: ai|heuristic|hybrid (default: ai)
 # - AI mode: link only when confidence >= ai_confidence_threshold; otherwise create Unassigned
 ai-tasks-runtime sessions watch /path/to/your/vault --board-path "Tasks/Boards/Board.md" --match-mode ai --ai-confidence-threshold 0.65
+
+# Optional: use an OpenAI-compatible provider for sessions summarize/match (instead of Codex CLI)
+# (The Obsidian plugin injects these env vars automatically when you fill in Model settings.)
+export AI_TASKS_MODEL_PROVIDER="openai-compatible"
+export AI_TASKS_MODEL_BASE_URL="https://api.openai.com"
+export AI_TASKS_MODEL_API_KEY="..."
+export AI_TASKS_MODEL_NAME="gpt-4o-mini"
 
 # Disable board linking:
 ai-tasks-runtime sessions watch /path/to/your/vault --no-link-board
